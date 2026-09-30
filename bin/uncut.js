@@ -14,6 +14,7 @@ import { startServer } from '../src/server.js';
 import { loadConfig } from '../src/config.js';
 import { hasCloudflared } from '../src/fileshare.js';
 import { compare, download } from '../src/quality.js';
+import { acquireLock } from '../src/lock.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cfg = loadConfig(ROOT);
@@ -137,6 +138,7 @@ try {
 
     case 'run': {
       const { ig, queue, files, tokens, log, stageWindowMin } = cfg;
+      acquireLock(join(ROOT, 'data', 'scheduler.lock'));
       keepAwake();
       console.log(ig.dryRun ? '🧪 DRY RUN — no token set, nothing will actually post.' : `🟢 LIVE — ${ig.login} login, ${ig.uploadMode} upload`);
       console.log('Scheduler running. Ctrl+C to stop.\n');
@@ -151,12 +153,21 @@ try {
 
     case 'serve': {
       const { ig } = cfg;
+      acquireLock(join(ROOT, 'data', 'scheduler.lock'));
       keepAwake();
-      startServer({ root: ROOT, ...cfg });
-      console.log(`\n  Uncut is running →  http://localhost:${cfg.port}`);
-      console.log(ig.dryRun ? '  🧪 DRY RUN: nothing will actually post.' : `  🟢 LIVE: ${ig.login} login, ${ig.uploadMode} upload`);
-      console.log('  The scheduler runs while this window is open. The Mac won\'t idle-sleep meanwhile');
-      console.log('  (closing the lid still sleeps it).\n');
+      const app = startServer({ root: ROOT, ...cfg });
+      app.server.on('error', (err) => {
+        console.error(err.code === 'EADDRINUSE'
+          ? `\n❌ Port ${cfg.port} is already in use — Uncut (or something else) is already running.\n   Open http://localhost:${cfg.port} or close the other window.\n`
+          : `\n❌ ${err.message}\n`);
+        process.exit(1);
+      });
+      app.ready.then(() => {
+        console.log(`\n  Uncut is running →  http://localhost:${cfg.port}`);
+        console.log(ig.dryRun ? '  🧪 DRY RUN: nothing will actually post.' : `  🟢 LIVE: ${ig.login} login, ${ig.uploadMode} upload`);
+        console.log('  The scheduler runs while this window is open. The Mac won\'t idle-sleep meanwhile');
+        console.log('  (closing the lid still sleeps it).\n');
+      });
       break;
     }
 
