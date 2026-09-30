@@ -11,6 +11,7 @@ import { preflight } from './preflight.js';
 import { conformAsync } from './conform.js';
 import { hasCloudflared } from './fileshare.js';
 import { tick } from './worker.js';
+import { mediaReport, clearMedia } from './storage.js';
 
 const TYPES = { '.html': 'text/html', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/mp4' };
 
@@ -105,6 +106,11 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
           accountError,
           tokenDaysLeft: tokens?.daysLeft() ?? null,
         });
+      }
+
+      if (resource === 'storage') {
+        if (req.method === 'GET') return send(res, 200, mediaReport(mediaDir, queue.posts).summary);
+        if (req.method === 'POST' && id === 'clear') return send(res, 200, clearMedia(mediaDir, queue));
       }
 
       if (req.method === 'POST' && resource === 'upload') {

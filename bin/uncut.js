@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // uncut — schedule Instagram Reels without wrecking video quality.
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -15,6 +15,8 @@ import { loadConfig } from '../src/config.js';
 import { hasCloudflared } from '../src/fileshare.js';
 import { compare, download } from '../src/quality.js';
 import { acquireLock } from '../src/lock.js';
+import { mediaReport, clearMedia, human } from '../src/storage.js';
+import * as autostart from '../src/autostart.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cfg = loadConfig(ROOT);
@@ -77,6 +79,7 @@ const { values: opt, positionals: pos } = parseArgs({
     post: { type: 'string' },
     latest: { type: 'boolean', default: false },
     tunnel: { type: 'boolean', default: false },
+    clear: { type: 'boolean', default: false },
   },
 });
 
@@ -132,6 +135,48 @@ try {
       break;
     }
 
+    case 'storage': {
+      const mediaDir = join(ROOT, 'media');
+      const { summary } = mediaReport(mediaDir, cfg.queue.posts);
+      console.log(`\n  Uncut's video copies: ${human(summary.totalBytes)}`);
+      console.log(`  Clearable: ${human(summary.clearable.bytes)} — ${summary.posted.count} from posted Reels, ${summary.unused.count} uploaded but never scheduled`);
+      if (!opt.clear) {
+        if (summary.clearable.count) console.log('\n  To clear them: node bin/uncut.js storage --clear');
+        console.log("  (Only Uncut's own copies in ~/Coding/uncut/media. Your originals are never touched.)\n");
+        break;
+      }
+      const r = clearMedia(mediaDir, cfg.queue);
+      console.log(`\n  🧹 Cleared ${r.count} files, ${human(r.bytes)}.\n`);
+      break;
+    }
+
+    case 'autostart': {
+      const action = pos[0] || 'status';
+      if (process.platform !== 'darwin') throw new Error('Autostart is only available on macOS.');
+      if (action === 'on') {
+        // A copy running in a Terminal window would block the background one.
+        const lockFile = join(ROOT, 'data', 'scheduler.lock');
+        if (existsSync(lockFile) && !autostart.isLoaded()) {
+          try {
+            process.kill(Number(readFileSync(lockFile, 'utf8')), 0);
+            throw new Error('Uncut is running in a Terminal window. Close it first (Ctrl+C), then run this again.');
+          } catch (e) {
+            if (e.code !== 'ESRCH') throw e;
+          }
+        }
+        autostart.enable(ROOT);
+        console.log(`\n✅ Autostart is ON. Uncut is running in the background now, and will start`);
+        console.log(`   by itself whenever you log in. Open http://localhost:${cfg.port}`);
+        console.log(`   Log: ~/Coding/uncut/data/uncut.log   ·   To turn off: node bin/uncut.js autostart off\n`);
+      } else if (action === 'off') {
+        autostart.disable();
+        console.log('\n⏹  Autostart is OFF. Uncut is stopped and won\'t start at login.\n   Run it by hand any time with: npm start\n');
+      } else {
+        console.log(autostart.isLoaded() ? `\n✅ Autostart is ON — running in the background. http://localhost:${cfg.port}\n` : '\n⏹  Autostart is OFF. Turn on with: node bin/uncut.js autostart on\n');
+      }
+      break;
+    }
+
     case 'post-now': {
       console.log(cfg.queue.postNow(pos[0]) ? 'Posting on the next tick (within 30s) while the scheduler is running.' : 'No missed post with that id.');
       break;
@@ -164,6 +209,7 @@ try {
     case 'serve': {
       const { ig } = cfg;
       acquireLock(join(ROOT, 'data', 'scheduler.lock'));
+      autostart.trimLog(ROOT);
       keepAwake();
       const app = startServer({ root: ROOT, ...cfg });
       app.server.on('error', (err) => {
@@ -262,12 +308,19 @@ try {
     uncut check <video>                                inspect a file against Instagram's spec
     uncut add <video> --at "YYYY-MM-DD HH:MM" [--caption "..."] [--cover <seconds>]
     uncut list | remove <id> | retry <id> | post-now <id>
+    uncut storage [--clear]                            space used by Uncut's video copies
+    uncut autostart on | off | status                  run in the background & start at login
     uncut run                                          scheduler only, no web app
     uncut doctor [--tunnel]                            check your Meta connection
     uncut compare <original> <posted-file>             measure quality loss
     uncut compare <original> --post <id> | --latest    …downloading the posted version from Instagram`);
   }
 } catch (err) {
+  if (/already running/.test(err.message) && autostart.isLoaded()) {
+    console.error(`\n✅ Uncut is already running in the background (autostart is on).\n   Open http://localhost:${cfg.port}\n`);
+    process.exit(0);
+  }
   console.error(`\n❌ ${err.message}\n`);
-  process.exit(1);
+  // Under launchd a clean exit stops it from endlessly retrying a duplicate start.
+  process.exit(process.env.UNCUT_LAUNCHD === '1' && /already running/.test(err.message) ? 0 : 1);
 }

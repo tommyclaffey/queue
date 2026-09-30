@@ -35,7 +35,9 @@ Meta account setup, click by click: vault note **"(C) Uncut — Meta Setup Guide
 ```bash
 node bin/uncut.js check <video>
 node bin/uncut.js add <video> --at "2026-10-02 18:30" --caption "..." [--cover 2.5]
-node bin/uncut.js list | remove <id> | retry <id>
+node bin/uncut.js list | remove <id> | retry <id> | post-now <id>
+node bin/uncut.js autostart on | off | status
+node bin/uncut.js storage [--clear]
 node bin/uncut.js run                               # scheduler without the web app
 node bin/uncut.js doctor [--tunnel]
 node bin/uncut.js compare <original> <posted-file>  # VMAF / SSIM / PSNR
@@ -47,6 +49,18 @@ node bin/uncut.js compare <original> --post <id>    # vs. a post uncut made
 which blocks other websites (CSRF and DNS rebinding). Temporary-link keys never reach the browser.
 The link server serves only shared files, closes links when they're no longer needed (3h max), and
 can't be crashed by malformed requests.
+
+**Missed posts:** if the Mac was off or asleep at post time, a post more than `LATE_LIMIT_MIN` (default
+120) late becomes **missed** and waits for **Post now** or a new time, instead of going out by surprise.
+
+**Notifications** (macOS): posted, failed, missed. `NOTIFY=0` turns them off.
+
+**Autostart** (off by default): `node bin/uncut.js autostart on` installs a LaunchAgent that starts
+uncut at login and restarts it after a crash. `autostart off` removes it. Log: `data/uncut.log`.
+
+**Storage:** uncut keeps its own copies of videos in `media/`. `node bin/uncut.js storage [--clear]`
+(or **Clear** in the web app) deletes copies of posted Reels and uploads never scheduled. It never
+touches anything still waiting to post, or your originals.
 
 Only one scheduler runs at a time (`data/scheduler.lock`). While it runs, the Mac won't idle-sleep
 (`caffeinate`), but closing the lid still sleeps it.
@@ -71,7 +85,7 @@ Only one scheduler runs at a time (`data/scheduler.lock`). While it runs, the Ma
 ## Tests
 
 ```bash
-npm test     # 58 tests, ~45s
+npm test     # 68 tests, ~45s
 ```
 
 - `test/mock-meta.js` is a strict fake of Meta's Graph + rupload APIs, built from Meta's docs. It checks
@@ -104,6 +118,10 @@ src/worker.js     scheduler state machine
 src/queue.js      JSON schedule, safe across processes
 src/token.js      token renewal
 src/lock.js       single-scheduler lock
+src/notify.js     macOS notifications
+src/storage.js    media copy report + cleanup
+src/autostart.js  LaunchAgent (start at login)
+src/range.js      crash-proof HTTP range/file streaming
 src/quality.js    VMAF comparison
 src/server.js     localhost web app + API
 public/index.html the UI
