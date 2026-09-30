@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Uncut: Reel Scheduler</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --surface: #fff; --ink: #1a1a1a; --muted: #6b6b6b; --line: #e4e2dd;
+    --accent: #1a1a1a; --ok: #1f7a4a; --ok-bg: #e7f4ec; --warn: #8a5a00; --warn-bg: #fdf3dc;
+    --err: #b3261e; --err-bg: #fbe9e7; --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Inter", sans-serif; background: var(--bg); color: var(--ink); }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 20px 32px; border-bottom: 1px solid var(--line); background: var(--surface); }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  h1 span { color: var(--muted); font-weight: 400; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 14px; }
+  .pill { font-size: 13px; padding: 4px 12px; border-radius: 99px; font-weight: 600; }
+  .pill.dry { background: var(--warn-bg); color: var(--warn); }
+  .pill.live { background: var(--ok-bg); color: var(--ok); }
+  main { display: grid; grid-template-columns: 340px 1fr; gap: 24px; padding: 28px 32px; max-width: 1200px; margin: 0 auto; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+  .phone { aspect-ratio: 9 / 16; background: #111; border-radius: 22px; overflow: hidden; display: grid; place-items: center; position: relative; }
+  .phone video { width: 100%; height: 100%; object-fit: contain; display: none; }
+  .drop { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: #bbb; cursor: pointer; padding: 24px; border: 2px dashed #333; border-radius: 22px; }
+  .drop.over { border-color: #fff; color: #fff; }
+  .drop b { color: #fff; display: block; font-size: 16px; margin-bottom: 4px; }
+  .stack { display: grid; gap: 24px; align-content: start; }
+  .meta { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
+  .verdict { padding: 12px 14px; border-radius: 10px; font-weight: 600; margin-bottom: 12px; }
+  .verdict.none { background: var(--ok-bg); color: var(--ok); }
+  .verdict.fix { background: var(--warn-bg); color: var(--warn); }
+  ul.issues { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+  ul.issues li { padding: 8px 12px; border-radius: 8px; font-size: 14px; }
+  ul.issues li.error { background: var(--err-bg); color: var(--err); }
+  ul.issues li.warn { background: var(--warn-bg); color: var(--warn); }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 0 0 6px; }
+  input, textarea { width: 100%; font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+  textarea { min-height: 110px; resize: vertical; }
+  .count { font-size: 12px; color: var(--muted); text-align: right; margin-top: 4px; }
+  .field { margin-bottom: 16px; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 12px 18px; cursor: pointer; background: var(--accent); color: #fff; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--muted); padding: 6px 10px; font-weight: 500; }
+  button.ghost:hover { color: var(--err); }
+  .msg { font-size: 14px; margin-top: 12px; min-height: 20px; }
+  .msg.err { color: var(--err); } .msg.ok { color: var(--ok); }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { text-align: left; padding: 12px 8px; border-top: 1px solid var(--line); font-size: 14px; vertical-align: middle; }
+  th { border-top: 0; font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .status { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 99px; background: #eee; white-space: nowrap; }
+  .status.published { background: var(--ok-bg); color: var(--ok); }
+  .status.failed { background: var(--err-bg); color: var(--err); }
+  .status.staged, .status.ready { background: #e8eefc; color: #2449a8; }
+  .empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
+  .err-line { color: var(--err); font-size: 12px; margin-top: 4px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Uncut <span>· Reel scheduler</span></h1>
+  <span id="mode" class="pill dry">…</span>
+</header>
+
+<main>
+  <!-- LEFT: the video -->
+  <div class="stack">
+    <div class="phone" id="phone">
+      <video id="preview" controls playsinline></video>
+      <div class="drop" id="drop">
+        <div><b>Drop a Reel here</b>or click to choose<br /><small>MP4 or MOV</small></div>
+      </div>
+      <input type="file" id="picker" accept="video/*" class="hidden" />
+    </div>
+    <div class="card hidden" id="checkCard">
+      <h2>Quality check</h2>
+      <p class="meta" id="specLine"></p>
+      <div class="verdict" id="verdict"></div>
+      <ul class="issues" id="issues"></ul>
+    </div>
+  </div>
+
+  <!-- RIGHT: schedule + queue -->
+  <div class="stack">
+    <div class="card">
+      <h2>Schedule</h2>
+      <div class="field">
+        <label for="caption">Caption</label>
+        <textarea id="caption" maxlength="2200" placeholder="Write the caption…"></textarea>
+        <div class="count"><span id="count">0</span> / 2,200</div>
+      </div>
+      <div class="field">
+        <label for="at">Post time</label>
+        <input type="datetime-local" id="at" />
+      </div>
+      <button id="schedule" disabled>Schedule Reel</button>
+      <div class="msg" id="msg"></div>
+    </div>
+
+    <div class="card">
+      <h2>Queue</h2>
+      <table>
+        <thead><tr><th>When</th><th>Caption</th><th>Status</th><th></th></tr></thead>
+        <tbody id="queue"></tbody>
+      </table>
+      <div class="empty hidden" id="empty">Nothing scheduled yet.</div>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let uploaded = null;
+
+const VERDICT = {
+  none: '✅ Ships untouched. Instagram gets your original file.',
+  remux: '🔧 Lossless fix on schedule. Rewrap only, zero quality change.',
+  'audio-only': '🔧 Audio fix on schedule. The video stays identical.',
+  reencode: '🎞 One clean re-encode on schedule. Better you do it than Instagram.',
+};
+const STATUS_LABEL = { queued: 'Queued', staged: 'Uploading', ready: 'Ready', published: 'Posted', failed: 'Failed' };
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || 'Something went wrong');
+  return body;
+}
+
+async function loadStatus() {
+  const s = await api('/api/status');
+  const m = $('mode');
+  m.textContent = s.dryRun ? '🧪 Dry run: nothing really posts' : '🟢 Live';
+  m.className = 'pill ' + (s.dryRun ? 'dry' : 'live');
+  if (!s.ffmpeg) setMsg('ffmpeg is missing. Run: brew install ffmpeg', true);
+}
+
+function setMsg(text, isErr) {
+  $('msg').textContent = text;
+  $('msg').className = 'msg ' + (isErr ? 'err' : 'ok');
+}
+
+// ---------- Upload ----------
+const drop = $('drop');
+drop.onclick = () => $('picker').click();
+$('picker').onchange = (e) => e.target.files[0] && upload(e.target.files[0]);
+['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', (e) => e.dataTransfer.files[0] && upload(e.dataTransfer.files[0]));
+
+async function upload(file) {
+  drop.querySelector('div').innerHTML = '<b>Checking…</b>' + file.name;
+  setMsg('');
+  try {
+    const r = await api('/api/upload?name=' + encodeURIComponent(file.name), { method: 'POST', body: file });
+    uploaded = r;
+    showCheck(r);
+    const v = $('preview');
+    v.src = '/media/' + encodeURIComponent(r.name);
+    v.style.display = 'block';
+    drop.style.display = 'none';
+    $('schedule').disabled = !!r.result.needsTrim;
+  } catch (err) {
+    drop.querySelector('div').innerHTML = '<b>Drop a Reel here</b>or click to choose';
+    setMsg(err.message, true);
+  }
+}
+
+function showCheck({ info, result }) {
+  $('checkCard').classList.remove('hidden');
+  const v = info.video || {};
+  $('specLine').textContent = `${v.width}×${v.height} · ${v.codec} · ${Math.round(v.fps)} fps · ${(info.bytes / 1048576).toFixed(1)} MB · ${info.durationSec.toFixed(1)}s`;
+  const verdict = $('verdict');
+  verdict.textContent = result.needsTrim ? '✂️ Out of the 3s–15min range. Trim it in your editor.' : VERDICT[result.plan];
+  verdict.className = 'verdict ' + (result.plan === 'none' ? 'none' : 'fix');
+  const ul = $('issues');
+  ul.innerHTML = '';
+  for (const i of result.issues) {
+    const li = document.createElement('li');
+    li.className = i.level;
+    li.textContent = (i.level === 'error' ? '🛑 ' : '⚠️ ') + i.msg;
+    ul.appendChild(li);
+  }
+}
+
+// ---------- Schedule ----------
+$('caption').oninput = (e) => ($('count').textContent = e.target.value.length.toLocaleString());
+
+$('schedule').onclick = async () => {
+  if (!$('at').value) return setMsg('Pick a post time.', true);
+  const btn = $('schedule');
+  btn.disabled = true;
+  setMsg(uploaded.result.plan === 'reencode' ? 'Re-encoding once at high quality… this can take a minute.' : 'Scheduling…');
+  try {
+    const r = await api('/api/schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: uploaded.name, at: new Date($('at').value).toISOString(), caption: $('caption').value }),
+    });
+    setMsg('📅 Scheduled for ' + new Date(r.post.publishAt).toLocaleString());
+    reset();
+    loadQueue();
+  } catch (err) {
+    setMsg(err.message, true);
+    btn.disabled = false;
+  }
+};
+
+function reset() {
+  uploaded = null;
+  $('preview').removeAttribute('src');
+  $('preview').style.display = 'none';
+  drop.style.display = 'grid';
+  drop.querySelector('div').innerHTML = '<b>Drop a Reel here</b>or click to choose<br /><small>MP4 or MOV</small>';
+  $('checkCard').classList.add('hidden');
+  $('caption').value = '';
+  $('count').textContent = '0';
+  $('at').value = '';
+  $('schedule').disabled = true;
+}
+
+// ---------- Queue ----------
+async function loadQueue() {
+  const { posts } = await api('/api/queue');
+  const body = $('queue');
+  body.innerHTML = '';
+  $('empty').classList.toggle('hidden', posts.length > 0);
+  for (const p of posts) {
+    const tr = document.createElement('tr');
+    const when = document.createElement('td');
+    when.textContent = new Date(p.publishAt).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    const cap = document.createElement('td');
+    cap.textContent = p.caption ? (p.caption.length > 60 ? p.caption.slice(0, 60) + '…' : p.caption) : '(no caption)';
+    if (p.error) {
+      const e = document.createElement('div');
+      e.className = 'err-line';
+      e.textContent = p.error;
+      cap.appendChild(e);
+    }
+    const st = document.createElement('td');
+    const pill = document.createElement('span');
+    pill.className = 'status ' + p.status;
+    pill.textContent = STATUS_LABEL[p.status] || p.status;
+    st.appendChild(pill);
+    const act = document.createElement('td');
+    if (p.status !== 'published') {
+      const b = document.createElement('button');
+      b.className = 'ghost';
+      b.textContent = 'Remove';
+      b.onclick = async () => { await api('/api/queue/' + p.id, { method: 'DELETE' }); loadQueue(); };
+      act.appendChild(b);
+    }
+    tr.append(when, cap, st, act);
+    body.appendChild(tr);
+  }
+}
+
+// Block picking a time in the past.
+$('at').min = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+
+loadStatus();
+loadQueue();
+setInterval(loadQueue, 10_000);
+</script>
+</body>
+</html>

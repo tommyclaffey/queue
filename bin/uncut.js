@@ -11,6 +11,7 @@ import { conform } from '../src/conform.js';
 import { Queue } from '../src/queue.js';
 import { InstagramClient } from '../src/instagram.js';
 import { tick } from '../src/worker.js';
+import { startServer } from '../src/server.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 if (existsSync(join(ROOT, '.env'))) process.loadEnvFile(join(ROOT, '.env'));
@@ -127,6 +128,16 @@ switch (cmd) {
     break;
   }
 
+  case 'serve': {
+    const client = ig();
+    const port = Number(process.env.PORT || 4400);
+    startServer({ root: ROOT, queue: queue(), ig: client, port, stageWindowMin: Number(process.env.STAGE_WINDOW_MIN || 120) });
+    console.log(`\n  Uncut is running →  http://localhost:${port}`);
+    console.log(client.dryRun ? '  🧪 DRY RUN: nothing will actually post.' : `  🟢 LIVE: posting to IG user ${client.userId}`);
+    console.log('  The scheduler runs while this window is open. Keep the Mac awake.\n');
+    break;
+  }
+
   default:
     console.log(`uncut — schedule Instagram Reels without wrecking quality
 
@@ -134,5 +145,6 @@ switch (cmd) {
   uncut add <video> --at "YYYY-MM-DD HH:MM" [--caption "..."] [--no-fix]
   uncut list                                       show the schedule
   uncut remove <id>
-  uncut run                                        start the scheduler (dry run until .env has a token)`);
+  uncut run                                        start the scheduler (dry run until .env has a token)
+  uncut serve                                      web app + scheduler at http://localhost:4400`);
 }

@@ -3,8 +3,11 @@
 //   audio-only → video copied bit-for-bit, only the audio is re-encoded.
 //   reencode   → one high-quality pass: 1080 wide, H.264 High, CRF 17, closed GOP.
 // Every extra encode is a generation of quality loss, so we do at most one.
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import { basename, dirname, extname, join } from 'node:path';
+
+const execFileP = promisify(execFile);
 
 export function conformArgs(info, plan, spec, out) {
   const base = ['-y', '-hide_banner', '-loglevel', 'error', '-i', info.file];
@@ -37,5 +40,13 @@ export function conform(info, plan, spec) {
   if (plan === 'none') return info.file;
   const out = join(dirname(info.file), basename(info.file, extname(info.file)) + '.conformed.mp4');
   execFileSync('ffmpeg', conformArgs(info, plan, spec, out), { stdio: 'inherit' });
+  return out;
+}
+
+// Non-blocking version for the web server, so a long re-encode doesn't freeze the UI.
+export async function conformAsync(info, plan, spec) {
+  if (plan === 'none') return info.file;
+  const out = join(dirname(info.file), basename(info.file, extname(info.file)) + '.conformed.mp4');
+  await execFileP('ffmpeg', conformArgs(info, plan, spec, out));
   return out;
 }

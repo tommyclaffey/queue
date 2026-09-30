@@ -5,6 +5,7 @@
   "type": "module",
   "bin": { "uncut": "bin/uncut.js" },
   "scripts": {
+    "start": "node bin/uncut.js serve",
     "check": "node bin/uncut.js check",
     "worker": "node bin/uncut.js run"
   },
