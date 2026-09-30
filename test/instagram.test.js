@@ -413,3 +413,29 @@ test('link server failing to start (port taken) → clean error, nothing leaked'
   assert.equal(share.active, 0);
   blocker.close();
 });
+
+// ---------- Matches the LIVE Meta error formats (probed Sept 30 with a fake token) ----------
+
+test('upload server says "busy, retriable" → retried and succeeds', async () => {
+  meta.state.ruploadFailNext = 2;
+  const post = queue.add({ file: video, publishAt: Date.now() + 60e3 });
+  await run(client());
+  assert.equal(queue.get(post.id).status, 'staged');
+});
+
+test('upload server says "not authorized" → fails at once with the real reason', async () => {
+  const ig = client();
+  const post = queue.add({ file: video, publishAt: Date.now() + 60e3 });
+  // Graph accepts the key; the upload server rejects it (as it would for a wrong key type).
+  const orig = globalThis.fetch;
+  globalThis.fetch = (url, opts) => (String(url).includes('/ig-api-upload/') ? orig(url, { ...opts, headers: { ...opts.headers, Authorization: 'OAuth wrong' } }) : orig(url, opts));
+  try {
+    await run(ig);
+  } finally {
+    globalThis.fetch = orig;
+  }
+  const p = queue.get(post.id);
+  assert.equal(p.status, 'failed');
+  assert.match(p.error, /User not authorized to perform this request/);
+  assert.match(p.error, /NotAuthorizedError/);
+});

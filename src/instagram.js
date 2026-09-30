@@ -90,13 +90,21 @@ export class InstagramClient {
         continue;
       }
       const json = await res.json().catch(() => ({}));
-      if (res.ok && !json.error) return json;
+      if (res.ok && !json.error && !json.debug_info) return json;
 
+      // Graph API errors: { error: { message, code, error_subcode, is_transient } }
+      // Upload server (rupload) errors — verified against the live server Sept 30:
+      //   { debug_info: { retriable: false, type: "NotAuthorizedError", message: "…" } }
       const e = json.error || {};
-      const transient = res.status >= 500 || res.status === 429 || e.is_transient === true || TRANSIENT_CODES.has(e.code);
+      const d = json.debug_info || {};
+      const message = e.error_user_msg || e.message || d.message || `HTTP ${res.status}`;
+      const code = e.code ?? d.type;
+      const transient = typeof d.retriable === 'boolean'
+        ? d.retriable
+        : res.status >= 500 || res.status === 429 || e.is_transient === true || TRANSIENT_CODES.has(e.code);
       lastErr = new InstagramError(
-        `Instagram API ${res.status}: ${e.error_user_msg || e.message || 'unknown error'} (code ${e.code ?? '?'}${e.error_subcode ? '/' + e.error_subcode : ''})`,
-        { status: res.status, code: e.code, subcode: e.error_subcode, transient },
+        `Instagram API ${res.status}: ${message} (${code != null ? 'code ' + code : 'no code'}${e.error_subcode ? '/' + e.error_subcode : ''})`,
+        { status: res.status, code, subcode: e.error_subcode, transient },
       );
       if (!transient) throw lastErr;
     }

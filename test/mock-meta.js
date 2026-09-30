@@ -20,6 +20,7 @@ export function startMockMeta({ version = 'v25.0', userId = '1784', processingPo
     dropNext: 0, // kill the socket on the next N requests (simulates wifi drop)
     forceStatus: null, // make every container report this status_code
     rejectPublishWith: null, // { code, message, status } for a permanent publish error
+    ruploadFailNext: 0, // upload server says 'busy, retriable'
     dropAfterPublish: 0, // publish succeeds on Meta's side, but the reply never arrives
   };
   let seq = 0;
@@ -55,14 +56,23 @@ export function startMockMeta({ version = 'v25.0', userId = '1784', processingPo
 
     // ---- rupload: POST /ig-api-upload/{ver}/{container-id}
     if (parts[0] === 'ig-api-upload') {
-      if (req.headers.authorization !== `OAuth ${GOOD_TOKEN}`) return err(res, 401, 190, 'Invalid OAuth access token.');
-      if (parts[1] !== version) return err(res, 400, 100, 'Unsupported version');
+      // The live upload server uses a different error shape (verified Sept 30 with a fake token).
+      const rerr = (status, type, message, retriable = false) => {
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ debug_info: { retriable, type, message } }));
+      };
+      if (state.ruploadFailNext > 0) {
+        state.ruploadFailNext--;
+        return rerr(503, 'ServiceUnavailable', 'Upload service busy', true);
+      }
+      if (req.headers.authorization !== `OAuth ${GOOD_TOKEN}`) return rerr(400, 'NotAuthorizedError', 'User not authorized to perform this request');
+      if (parts[1] !== version) return rerr(400, 'InvalidRequest', 'Unsupported version');
       const c = state.containers.get(parts[2]);
-      if (!c) return err(res, 400, 100, 'Invalid container id');
-      if (req.headers.offset !== '0') return err(res, 400, 100, 'offset header required');
+      if (!c) return rerr(400, 'InvalidRequest', 'Invalid container id');
+      if (req.headers.offset !== '0') return rerr(400, 'InvalidRequest', 'offset header required');
       const body = await readBody(req);
       if (Number(req.headers.file_size) !== body.length)
-        return err(res, 400, 100, `file_size ${req.headers.file_size} != received ${body.length}`);
+        return rerr(400, 'InvalidRequest', `file_size ${req.headers.file_size} != received ${body.length}`);
       c.bytes = body.length;
       c.sha = createHash('sha256').update(body).digest('hex');
       return ok(res, { success: true, message: 'Upload successful.' });
@@ -79,7 +89,7 @@ export function startMockMeta({ version = 'v25.0', userId = '1784', processingPo
     // ---- Graph API
     if (parts[0] !== version) return err(res, 400, 2635, `Unsupported API version ${parts[0]}`);
     const auth = req.headers.authorization || '';
-    if (auth !== `Bearer ${GOOD_TOKEN}`) return err(res, 400, 190, 'Invalid OAuth access token - Cannot parse access token');
+    if (auth !== `Bearer ${GOOD_TOKEN}`) return err(res, 401, 190, 'Invalid OAuth access token - Cannot parse access token'); // matches live Meta (verified)
 
     const [, id, edge] = parts;
     const body = req.method === 'POST' ? new URLSearchParams((await readBody(req)).toString()) : null;
