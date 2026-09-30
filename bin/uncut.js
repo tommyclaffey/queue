@@ -24,6 +24,7 @@ const PLAN = {
   remux: '🔧 Lossless fix — rewrap only, zero quality change.',
   'audio-only': '🔧 Audio fix only — video stays bit-for-bit identical.',
   reencode: '🎞  One clean re-encode (1080w, H.264 High, CRF 17) — better you do it than Instagram.',
+  hdr: "🎨 HDR → standard colour with Apple's converter, then one clean encode.",
 };
 
 function needFfmpeg() {

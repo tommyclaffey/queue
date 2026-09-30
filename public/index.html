@@ -148,6 +148,7 @@ const VERDICT = {
   remux: '🔧 Lossless fix on schedule. Rewrap only, zero quality change.',
   'audio-only': '🔧 Audio fix on schedule. The video stays identical.',
   reencode: '🎞 One clean re-encode on schedule. Better you do it than Instagram.',
+  hdr: "🎨 HDR gets converted to standard colour (Apple's converter), then one clean encode.",
 };
 const STATUS = {
   queued: 'Queued', staged: 'Sending to Instagram', ready: 'Ready to post', published: 'Posted', failed: 'Failed',
@@ -248,7 +249,7 @@ $('schedule').onclick = async () => {
   if (!$('at').value) return setMsg('Pick a post time.', true);
   const btn = $('schedule');
   btn.disabled = true;
-  setMsg(uploaded.result.plan === 'reencode' ? 'Re-encoding once at high quality… this can take a minute.' : 'Scheduling…');
+  setMsg(['reencode', 'hdr'].includes(uploaded.result.plan) ? 'Converting at high quality… this can take a minute.' : 'Scheduling…');
   try {
     const r = await api('/api/schedule', json('POST', {
       name: uploaded.name, at: new Date($('at').value).toISOString(), caption: $('caption').value, coverOffsetMs: coverMs,

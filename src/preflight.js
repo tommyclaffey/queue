@@ -39,7 +39,7 @@ export function preflight(info, spec) {
       add('warn', `Resolution ${v.width}×${v.height} is below 1080 — it will look soft. Re-export from the source; no tool can add detail.`, null);
 
     if (['arib-std-b67', 'smpte2084'].includes(v.colorTransfer))
-      add('warn', 'HDR video (iPhone default). Instagram tone-maps HDR badly — export SDR from your editor.', null);
+      add('warn', 'HDR video (iPhone default). Instagram converts HDR badly — it gets washed out or blown out.', 'hdr');
 
     const aspect = (v.rotation % 180 ? v.height / v.width : v.width / v.height);
     if (Math.abs(aspect - spec.idealAspect) > 0.02)
@@ -58,7 +58,8 @@ export function preflight(info, spec) {
   }
 
   const fixes = new Set(issues.map((i) => i.fix).filter(Boolean));
-  const plan = fixes.has('reencode') ? 'reencode'
+  const plan = fixes.has('hdr') ? 'hdr'
+    : fixes.has('reencode') ? 'reencode'
     : fixes.has('audio') ? 'audio-only'
     : fixes.has('remux') ? 'remux'
     : 'none';
@@ -66,7 +67,7 @@ export function preflight(info, spec) {
   return {
     ok: !issues.some((i) => i.level === 'error'),
     issues,
-    plan, // cheapest safe fix: none < remux (lossless) < audio-only < reencode
+    plan, // cheapest safe fix: none < remux (lossless) < audio-only < reencode < hdr
     needsTrim: fixes.has('trim'),
   };
 }

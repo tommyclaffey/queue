@@ -92,3 +92,20 @@ test('5.1 audio → downmixed to stereo', async () => {
   const out = await conformAsync(probe(src), r.plan, SPEC);
   assert.equal(probe(out).audio.channels, 2);
 });
+
+test('iPhone-style HDR (HLG, 10-bit HEVC, 4K) → standard colour 1080×1920 via Apple converter', { skip: process.platform !== 'darwin' }, async () => {
+  const src = makeVideo(dir, 'hlg.mov', {
+    w: 2160, h: 3840, vcodec: 'libx265', pix: 'yuv420p10le',
+    extraV: ['-x265-params', 'colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc:log-level=error', '-color_primaries', 'bt2020', '-color_trc', 'arib-std-b67', '-colorspace', 'bt2020nc', '-tag:v', 'hvc1'],
+  });
+  const r = check(src);
+  assert.equal(r.plan, 'hdr');
+  assert.ok(r.issues.some((i) => /HDR/.test(i.msg)));
+  const out = await conformAsync(probe(src), r.plan, SPEC);
+  const info = probe(out);
+  assert.equal(check(out).ok, true);
+  assert.equal(check(out).plan, 'none');
+  assert.equal(info.video.pixFmt, 'yuv420p');
+  assert.notEqual(info.video.colorTransfer, 'arib-std-b67');
+  assert.equal(info.video.width, 1080);
+});

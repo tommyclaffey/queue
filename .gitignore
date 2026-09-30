@@ -3,3 +3,4 @@ data/
 media/
 *.conformed.mp4
 node_modules/
+*.sdr.mp4
