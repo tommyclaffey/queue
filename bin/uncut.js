@@ -91,7 +91,8 @@ try {
     case 'add': {
       const file = pos[0] && resolve(pos[0]);
       if (!file || !opt.at) throw new Error('Usage: uncut add <video> --at "2026-10-02 18:30" --caption "..." [--cover 2.5]');
-      const when = new Date(opt.at);
+      // "2026-10-02" alone would be read as UTC midnight (the evening before, in the US). Use local.
+      const when = new Date(/^\d{4}-\d{2}-\d{2}$/.test(opt.at.trim()) ? `${opt.at.trim()}T00:00` : opt.at);
       if (isNaN(when)) throw new Error(`Can't read the date "${opt.at}". Try "2026-10-02 18:30".`);
       if (when < Date.now()) throw new Error('That time is in the past.');
 
@@ -143,8 +144,12 @@ try {
       console.log(ig.dryRun ? '🧪 DRY RUN — no token set, nothing will actually post.' : `🟢 LIVE — ${ig.login} login, ${ig.uploadMode} upload`);
       console.log('Scheduler running. Ctrl+C to stop.\n');
       const loop = async () => {
-        await tokens.maybeRefresh(ig, { log });
-        await tick(queue, ig, { files, stageWindowMin, log });
+        try {
+          await tokens.maybeRefresh(ig, { log });
+          await tick(queue, ig, { files, stageWindowMin, log });
+        } catch (err) {
+          log(`scheduler error: ${err.message}`); // keep running; the next tick tries again
+        }
       };
       await loop();
       setInterval(loop, 30_000);

@@ -154,7 +154,9 @@ const STATUS = {
   queued: 'Queued', staged: 'Sending to Instagram', ready: 'Ready to post', published: 'Posted', failed: 'Failed',
 };
 
-async function api(path, opts) {
+async function api(path, opts = {}) {
+  // Every change request carries this header; the server rejects changes without it.
+  opts.headers = { ...(opts.headers || {}), 'X-Uncut': '1' };
   const res = await fetch(path, opts);
   const body = await res.json();
   if (!res.ok) throw new Error(body.error || 'Something went wrong');

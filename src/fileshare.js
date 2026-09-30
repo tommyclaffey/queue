@@ -14,12 +14,14 @@
 // host the files yourself (then this server listens on SHARE_PORT and you route to it).
 import { createServer } from 'node:http';
 import { get as httpsGet } from 'node:https';
-import { createReadStream, statSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { sendFile } from './range.js';
 import { spawn, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { extname } from 'node:path';
 
 const TYPES = { '.mp4': 'video/mp4', '.mov': 'video/quicktime' };
+const MAX_AGE_MS = 3 * 3600_000; // safety net: no link lives longer than 3h, whatever happens
 
 export function hasCloudflared() {
   try {
@@ -35,7 +37,7 @@ export class FileShare {
   #tunnel = null;
   #baseUrl = null;
   #starting = null;
-  #shares = new Map(); // token → file
+  #shares = new Map(); // token → { file, at }
 
   constructor({ publicBaseUrl = null, port = 0, log = () => {} } = {}) {
     this.publicBaseUrl = publicBaseUrl;
@@ -49,9 +51,10 @@ export class FileShare {
 
   async share(file) {
     if (!existsSync(file)) throw new Error(`File missing: ${file}`);
+    this.#sweep();
     const base = await this.#ensureStarted();
     const token = randomBytes(32).toString('hex');
-    this.#shares.set(token, file);
+    this.#shares.set(token, { file, at: Date.now() });
     const ext = extname(file).toLowerCase() === '.mov' ? '.mov' : '.mp4';
     return { token, url: `${base}/v/${token}/video${ext}` };
   }
@@ -66,27 +69,34 @@ export class FileShare {
     return this.#shares.has(token);
   }
 
+  // Close every link except these. The scheduler calls this each tick with the tokens of
+  // posts still waiting on Meta, so nothing stays open by accident.
+  async retainOnly(keep) {
+    this.#sweep();
+    for (const token of [...this.#shares.keys()]) if (!keep.has(token)) this.#shares.delete(token);
+    if (this.#shares.size === 0 && (this.#server || this.#tunnel)) await this.stop();
+  }
+
+  #sweep() {
+    const cutoff = Date.now() - MAX_AGE_MS;
+    for (const [token, s] of this.#shares) if (s.at < cutoff) this.#shares.delete(token);
+  }
+
   #handle = (req, res) => {
-    const m = /^\/v\/([a-f0-9]{64})\/video\.(mp4|mov)$/.exec(req.url.split('?')[0]);
-    const file = m && this.#shares.get(m[1]);
-    if (!file || !['GET', 'HEAD'].includes(req.method)) {
-      res.writeHead(404);
-      return res.end();
+    try {
+      const m = /^\/v\/([a-f0-9]{64})\/video\.(mp4|mov)$/.exec(req.url.split('?')[0]);
+      const entry = m && this.#shares.get(m[1]);
+      if (!entry || !['GET', 'HEAD'].includes(req.method)) {
+        res.writeHead(404);
+        return res.end();
+      }
+      this.log(`file link: Meta is downloading (${req.method}${req.headers.range ? ' range' : ''})`);
+      sendFile(req, res, entry.file, TYPES[extname(entry.file).toLowerCase()] || 'video/mp4');
+    } catch {
+      // This server faces the internet. Nothing a request does may take the app down.
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
     }
-    const size = statSync(file).size;
-    const type = TYPES[extname(file).toLowerCase()] || 'video/mp4';
-    const r = /bytes=(\d*)-(\d*)/.exec(req.headers.range || '');
-    this.log(`file link: Meta is downloading (${req.method}${r ? ' range' : ''})`);
-    if (!r) {
-      res.writeHead(200, { 'Content-Type': type, 'Content-Length': size, 'Accept-Ranges': 'bytes' });
-      if (req.method === 'HEAD') return res.end();
-      return createReadStream(file).pipe(res);
-    }
-    const start = r[1] ? Number(r[1]) : 0;
-    const end = r[2] ? Math.min(Number(r[2]), size - 1) : size - 1;
-    res.writeHead(206, { 'Content-Type': type, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Accept-Ranges': 'bytes' });
-    if (req.method === 'HEAD') return res.end();
-    createReadStream(file, { start, end }).pipe(res);
   };
 
   async #ensureStarted() {
@@ -96,8 +106,21 @@ export class FileShare {
   }
 
   async #start() {
+    try {
+      return await this.#startInner();
+    } catch (err) {
+      await this.stop(); // never leak a half-started server or cloudflared process
+      throw Object.assign(err, { transient: err.transient ?? true });
+    }
+  }
+
+  async #startInner() {
     this.#server = createServer(this.#handle);
-    await new Promise((r) => this.#server.listen(this.port, '127.0.0.1', r));
+    this.#server.on('error', () => {}); // surfaced via listen() below instead of crashing
+    await new Promise((resolve, reject) => {
+      this.#server.once('error', reject);
+      this.#server.listen(this.port, '127.0.0.1', resolve);
+    });
     const port = this.#server.address().port;
 
     if (this.publicBaseUrl) {
@@ -120,6 +143,15 @@ export class FileShare {
       this.#tunnel.stdout.on('data', onData);
       this.#tunnel.stderr.on('data', onData);
       this.#tunnel.on('exit', (code) => reject(new Error(`cloudflared exited (${code})`)));
+    });
+    // If the tunnel dies LATER, every open link is dead: forget them all so the scheduler
+    // re-stages those posts with a fresh tunnel instead of waiting for Meta to fail.
+    const tunnel = this.#tunnel;
+    tunnel.on('exit', () => {
+      if (this.#tunnel !== tunnel) return; // we stopped it on purpose
+      this.log('file link: tunnel dropped — links reset');
+      this.#tunnel = null;
+      this.stop();
     });
 
     // Prove the link works from the OUTSIDE before handing it to Meta.
@@ -152,8 +184,9 @@ export class FileShare {
   async stop() {
     this.#shares.clear();
     if (this.#tunnel) {
-      this.#tunnel.kill();
-      this.#tunnel = null;
+      const t = this.#tunnel;
+      this.#tunnel = null; // mark as intentional before the exit event fires
+      t.kill();
       this.log('file link: tunnel closed');
     }
     if (this.#server) {

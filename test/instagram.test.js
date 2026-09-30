@@ -307,3 +307,109 @@ test('edit lands while checking processing status → the edit wins, nothing poi
   assert.ok(['ready', 'staged'].includes(q.status));
   assert.equal(meta.state.containers.get(q.containerId).params.caption, 'v2');
 });
+
+// ---------- Code-review fixes ----------
+
+test('🛑 publish reply lost (wifi drop AFTER Meta posted) → marked published, NOT posted twice', async () => {
+  const ig = client();
+  const post = queue.add({ file: video, publishAt: Date.now() - 1000 });
+  meta.state.dropAfterPublish = 1;
+  for (let i = 0; i < 5; i++) await run(ig);
+  const p = queue.get(post.id);
+  assert.equal(p.status, 'published');
+  assert.match(p.permalink, /instagram\.com\/reel/);
+  assert.equal(meta.state.published, 1, 'exactly one post on Instagram');
+});
+
+test('🛑 Retry on a post that secretly went live → recognised, NOT posted twice', async () => {
+  const ig = client();
+  const post = queue.add({ file: video, publishAt: Date.now() + 60e3 });
+  for (let i = 0; i < 2; i++) await run(ig); // staged → ready (not yet due)
+  assert.equal(queue.get(post.id).status, 'ready');
+  // Meta publishes, but we recorded a failure (old behaviour / unknown outcome).
+  const cid = queue.get(post.id).containerId;
+  meta.state.containers.get(cid).status = 'PUBLISHED';
+  meta.state.media.set('m-secret', { container: cid, timestamp: new Date().toISOString() });
+  meta.state.published++;
+  queue.update(queue.get(post.id), { status: 'failed', error: 'Network error' });
+
+  queue.retry(post.id);
+  for (let i = 0; i < 4; i++) await run(ig, Date.now() + 120e3);
+  assert.equal(queue.get(post.id).status, 'published');
+  assert.equal(meta.state.published, 1, 'still exactly one post');
+  assert.equal(meta.state.containers.size, 1, 'no new upload was made');
+});
+
+test('container expired while waiting to post → re-uploaded, not failed', async () => {
+  const ig = client();
+  const post = queue.add({ file: video, publishAt: Date.now() + 60e3 });
+  for (let i = 0; i < 2; i++) await run(ig);
+  assert.equal(queue.get(post.id).status, 'ready');
+  meta.state.containers.get(queue.get(post.id).containerId).status = 'EXPIRED';
+  const later = Date.now() + 120e3;
+  await run(ig, later);
+  assert.equal(queue.get(post.id).status, 'queued');
+  for (let i = 0; i < 3; i++) await run(ig, later);
+  assert.equal(queue.get(post.id).status, 'published');
+  assert.equal(meta.state.published, 1);
+});
+
+test('stuck processing forever → fails after 3 hour-long tries (no endless re-uploads)', async () => {
+  const ig = client();
+  let t = Date.now();
+  const post = queue.add({ file: video, publishAt: t + 100 * 60e3 });
+  meta.state.forceStatus = 'IN_PROGRESS';
+  for (let i = 0; i < 20 && queue.get(post.id).status !== 'failed'; i++) {
+    await tick(queue, ig, { log: quiet, now: t });
+    t += 61 * 60e3;
+  }
+  const p = queue.get(post.id);
+  assert.equal(p.status, 'failed');
+  assert.match(p.error, /still processing/);
+  assert.ok(meta.state.containers.size <= 3);
+});
+
+test('failed post in link mode → its temporary link is closed', async () => {
+  const port = 49000 + Math.floor(Math.random() * 900);
+  const share = new FileShare({ publicBaseUrl: `http://127.0.0.1:${port}`, port });
+  const ig = client({ login: 'instagram', userId: undefined });
+  const post = queue.add({ file: video, publishAt: Date.now() + 60e3 });
+  await tick(queue, ig, { files: share, log: quiet });
+  assert.equal(share.active, 1);
+  meta.state.failNext = 1000; // status checks now fail…
+  const ig0 = client({ login: 'instagram', userId: undefined, retries: 0 });
+  for (let i = 0; i < MAX_ATTEMPTS + 1; i++) await tick(queue, ig0, { files: share, log: quiet });
+  assert.equal(queue.get(post.id).status, 'failed');
+  meta.state.failNext = 0;
+  await tick(queue, ig, { files: share, log: quiet });
+  assert.equal(share.active, 0, 'link closed');
+  await share.stop();
+});
+
+test('temporary link server: bad range → 416, deleted file → clean error, never crashes', async () => {
+  const { unlinkSync, copyFileSync } = await import('node:fs');
+  const port = 49900 + Math.floor(Math.random() * 90);
+  const share = new FileShare({ publicBaseUrl: `http://127.0.0.1:${port}`, port });
+  const copy = video.replace('.mp4', '.copy.mp4');
+  copyFileSync(video, copy);
+  const { url } = await share.share(copy);
+  assert.equal((await fetch(url, { headers: { Range: 'bytes=999999999-' } })).status, 416);
+  const tail = await fetch(url, { headers: { Range: 'bytes=-100' } });
+  assert.equal(tail.status, 206);
+  assert.equal((await tail.arrayBuffer()).byteLength, 100);
+  unlinkSync(copy);
+  assert.equal((await fetch(url)).status, 404);
+  assert.equal((await fetch(url.replace('/v/', '/x/'))).status, 404, 'still alive');
+  await share.stop();
+});
+
+test('link server failing to start (port taken) → clean error, nothing leaked', async () => {
+  const { createServer } = await import('node:http');
+  const blocker = createServer().listen(0, '127.0.0.1');
+  await new Promise((r) => blocker.once('listening', r));
+  const port = blocker.address().port;
+  const share = new FileShare({ publicBaseUrl: `http://127.0.0.1:${port}`, port });
+  await assert.rejects(share.share(video));
+  assert.equal(share.active, 0);
+  blocker.close();
+});

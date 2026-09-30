@@ -29,7 +29,7 @@ after(async () => {
 });
 
 const api = async (path, opts = {}) => {
-  const res = await fetch(base + path, opts);
+  const res = await fetch(base + path, { ...opts, headers: { ...(opts.headers || {}), 'X-Uncut': '1' } });
   return { status: res.status, body: await res.json().catch(() => null) };
 };
 const json = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -119,4 +119,37 @@ test('serves the app page', async () => {
   const res = await fetch(base + '/');
   assert.equal(res.status, 200);
   assert.match(await res.text(), /Uncut/);
+});
+
+test('🔒 other websites cannot use the API (CSRF + DNS rebinding)', async () => {
+  const body = JSON.stringify({ name: 'x', at: new Date(Date.now() + 9e6).toISOString() });
+  // Missing our header (what a cross-site form/fetch would send)
+  let r = await fetch(base + '/api/schedule', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body });
+  assert.equal(r.status, 403);
+  // Header present but from another site
+  r = await fetch(base + '/api/schedule', { method: 'POST', headers: { 'X-Uncut': '1', Origin: 'https://evil.example' }, body });
+  assert.equal(r.status, 403);
+  // DNS rebinding: request arrives with a foreign Host
+  const { request } = await import('node:http');
+  const status = await new Promise((resolve) => {
+    request({ host: '127.0.0.1', port: app.port(), path: '/api/queue', headers: { Host: 'evil.example' } }, (res) => { res.resume(); resolve(res.statusCode); }).end();
+  });
+  assert.equal(status, 403);
+  // Deletes/uploads blocked too
+  assert.equal((await fetch(base + '/api/upload?name=a.mp4', { method: 'POST', body: 'x' })).status, 403);
+});
+
+test('🔒 temporary-link keys never reach the browser', async () => {
+  const p = queue.posts[0];
+  queue.update(p, { shareToken: 'a'.repeat(64) });
+  const { body } = await api('/api/queue');
+  assert.ok(body.posts.every((x) => !('shareToken' in x)));
+  queue.update(p, { shareToken: null });
+});
+
+test('bad Range on the preview does not crash the app', async () => {
+  const up = await upload(makeVideo(dir, 'range.mp4'), 'range.mp4');
+  const r = await fetch(`${base}/media/${encodeURIComponent(up.body.name)}`, { headers: { Range: 'bytes=999999999-' } });
+  assert.equal(r.status, 416);
+  assert.equal((await api('/api/status')).status, 200, 'still running');
 });

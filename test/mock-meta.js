@@ -20,6 +20,7 @@ export function startMockMeta({ version = 'v25.0', userId = '1784', processingPo
     dropNext: 0, // kill the socket on the next N requests (simulates wifi drop)
     forceStatus: null, // make every container report this status_code
     rejectPublishWith: null, // { code, message, status } for a permanent publish error
+    dropAfterPublish: 0, // publish succeeds on Meta's side, but the reply never arrives
   };
   let seq = 0;
 
@@ -120,9 +121,22 @@ export function startMockMeta({ version = 'v25.0', userId = '1784', processingPo
       if (c.status !== 'FINISHED') return err(res, 400, 9007, 'Media ID is not available', { error_subcode: 2207027 });
       c.status = 'PUBLISHED';
       const mid = `m${++seq}`;
-      state.media.set(mid, { container: body.get('creation_id') });
+      state.media.set(mid, { container: body.get('creation_id'), timestamp: new Date().toISOString() });
       state.published++;
+      if (state.dropAfterPublish > 0) {
+        state.dropAfterPublish--;
+        return req.socket.destroy(); // live on Instagram, but we never hear back
+      }
       return ok(res, { id: mid });
+    }
+
+    // GET /{ig-user-id}/media → recent posts, newest first
+    if (req.method === 'GET' && edge === 'media') {
+      const data = [...state.media.entries()].reverse().map(([mid, m]) => ({
+        id: mid, media_type: 'VIDEO', timestamp: m.timestamp,
+        permalink: `https://www.instagram.com/reel/${mid}/`, media_url: `https://cdn.example/${mid}.mp4`,
+      }));
+      return ok(res, { data });
     }
 
     // GET /{ig-user-id}/content_publishing_limit

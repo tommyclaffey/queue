@@ -1,7 +1,8 @@
 // Local web UI + scheduler in one process. No dependencies.
 // Binds to 127.0.0.1 only — nothing on your network can reach it.
 import { createServer } from 'node:http';
-import { createReadStream, createWriteStream, existsSync, statSync, unlinkSync, mkdirSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync, unlinkSync, mkdirSync } from 'node:fs';
+import { sendFile } from './range.js';
 import { pipeline } from 'node:stream/promises';
 import { join, basename, extname } from 'node:path';
 import { INSTAGRAM_REELS as SPEC } from './specs.js';
@@ -61,9 +62,23 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
     }
   }
 
+  // Only this Mac's browser, on this app's own page, may talk to the API.
+  //  • Host check blocks DNS-rebinding (a website pointing its domain at 127.0.0.1)
+  //  • Non-GET requests need our custom header, which other websites can't send
+  //    without a CORS preflight — and we never approve preflights.
+  const allowedHost = (h) => /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(h || '');
+  const allowedOrigin = (o) => !o || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o);
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const [, api, resource, id, action] = url.pathname.split('/');
+    if (!allowedHost(req.headers.host)) {
+      res.writeHead(403);
+      return res.end('Forbidden');
+    }
+    if (req.method !== 'GET' && (req.headers['x-uncut'] !== '1' || !allowedOrigin(req.headers.origin))) {
+      return send(res, 403, { error: 'Forbidden' });
+    }
     try {
       if (req.method === 'GET' && url.pathname === '/') {
         res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });
@@ -74,17 +89,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       if (req.method === 'GET' && url.pathname.startsWith('/media/')) {
         const file = safeMedia(decodeURIComponent(url.pathname.slice(7)));
         if (!file) return send(res, 404, { error: 'not found' });
-        const size = statSync(file).size;
-        const type = TYPES[extname(file).toLowerCase()] || 'application/octet-stream';
-        const m = /bytes=(\d*)-(\d*)/.exec(req.headers.range || '');
-        if (!m) {
-          res.writeHead(200, { 'Content-Type': type, 'Content-Length': size, 'Accept-Ranges': 'bytes' });
-          return createReadStream(file).pipe(res);
-        }
-        const start = m[1] ? Number(m[1]) : 0;
-        const end = m[2] ? Math.min(Number(m[2]), size - 1) : size - 1;
-        res.writeHead(206, { 'Content-Type': type, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${size}` });
-        return createReadStream(file, { start, end }).pipe(res);
+        return sendFile(req, res, file, TYPES[extname(file).toLowerCase()] || 'application/octet-stream');
       }
 
       if (api !== 'api') return send(res, 404, { error: 'not found' });
@@ -138,22 +143,26 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         if (req.method === 'GET' && !id) {
           const posts = [...queue.posts]
             .sort((a, b) => a.publishAt.localeCompare(b.publishAt))
-            .map(({ log: _log, ...p }) => ({ ...p, media: basename(p.file), lastLog: _log?.at(-1)?.msg || null }));
+            // shareToken is a live public link key — it never leaves the server.
+            .map(({ log: _log, shareToken: _t, ...p }) => ({ ...p, media: basename(p.file), lastLog: _log?.at(-1)?.msg || null }));
           return send(res, 200, { posts });
         }
         if (req.method === 'PATCH' && id) {
           const { caption, at, coverOffsetMs } = await readJson(req);
-          const existing = queue.get(id);
-          if (existing?.shareToken && files) await files.unshare(existing.shareToken);
+          // Validate everything BEFORE touching the post, so a rejected edit changes nothing.
           if (caption !== undefined && caption.length > 2200) return send(res, 400, { error: 'Caption is over 2,200 characters.' });
           const patch = { caption };
           if (at !== undefined) patch.publishAt = validTime(at);
           if (coverOffsetMs !== undefined) patch.coverOffsetMs = validCover(coverOffsetMs);
+          const existing = queue.get(id);
           const post = queue.edit(id, patch);
+          if (post && existing?.shareToken && files) await files.unshare(existing.shareToken);
           return post ? send(res, 200, { post }) : send(res, 404, { error: 'No post with that id.' });
         }
         if (req.method === 'POST' && id && action === 'retry') {
+          const before = queue.get(id);
           const post = queue.retry(id);
+          if (post && before?.shareToken && files) await files.unshare(before.shareToken);
           return post ? send(res, 200, { post }) : send(res, 400, { error: 'Only failed posts can be retried.' });
         }
         if (req.method === 'DELETE' && id) {
@@ -167,9 +176,11 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
 
       send(res, 404, { error: 'not found' });
     } catch (err) {
+      if (res.headersSent) return res.destroy();
       send(res, 400, { error: err.message });
     }
   });
+  server.on('clientError', (_err, socket) => socket.destroy());
 
   server.listen(port, '127.0.0.1');
 

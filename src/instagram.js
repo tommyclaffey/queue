@@ -72,9 +72,10 @@ export class InstagramClient {
   }
 
   // One HTTP call, retried with backoff on network errors, 5xx, and Meta's transient codes.
-  async #call(url, { method = 'GET', body, headers = {} } = {}) {
+  async #call(url, { method = 'GET', body, headers = {}, retry = true } = {}) {
     let lastErr;
-    for (let attempt = 0; attempt <= this.retries; attempt++) {
+    const tries = retry ? this.retries : 0;
+    for (let attempt = 0; attempt <= tries; attempt++) {
       if (attempt) await sleep(this.retryDelayMs * 2 ** (attempt - 1));
       let res;
       try {
@@ -157,9 +158,12 @@ export class InstagramClient {
   // Step 4. Returns the live media id.
   async publish(containerId) {
     if (this.dryRun) return `dry_media_${Date.now()}`;
+    // ONE attempt only. If the reply is lost, the worker asks Meta whether it went live
+    // instead of blindly trying again.
     const { id } = await this.#call(`${this.graph}/${this.userId}/media_publish`, {
       method: 'POST',
       body: new URLSearchParams({ creation_id: containerId }),
+      retry: false,
     });
     return id;
   }

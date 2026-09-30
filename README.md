@@ -43,6 +43,11 @@ node bin/uncut.js compare <original> --latest       # vs. your newest Instagram 
 node bin/uncut.js compare <original> --post <id>    # vs. a post uncut made
 ```
 
+**Security:** the web app only answers `localhost`. Changes need an `X-Uncut` header and a local `Origin`,
+which blocks other websites (CSRF and DNS rebinding). Temporary-link keys never reach the browser.
+The link server serves only shared files, closes links when they're no longer needed (3h max), and
+can't be crashed by malformed requests.
+
 Only one scheduler runs at a time (`data/scheduler.lock`). While it runs, the Mac won't idle-sleep
 (`caffeinate`), but closing the lid still sleeps it.
 
@@ -57,12 +62,16 @@ Only one scheduler runs at a time (`data/scheduler.lock`). While it runs, the Ma
 | Temp link lost (app restarted mid-download) | Re-staged |
 | `ERROR` in link mode | One automatic re-stage (a dropped tunnel looks like a bad file), then `failed` |
 | Daily quota reached | Held in `ready`, not failed |
+| Publish reply lost (posted, but no answer) | Asks Meta for the container's status. If `PUBLISHED`, it's recorded as posted and **never re-posted** |
+| Retry/edit after an unclear failure | Checks the old container first, so a post that secretly went live isn't posted twice |
+| Container expires while waiting to post | Re-staged |
+| Stuck 3 times in a row | `failed` (no endless re-uploads) |
 | Instagram-login token | Refreshed weekly, saved to `data/token.json` (mode 600). A new `.env` token wins |
 
 ## Tests
 
 ```bash
-npm test     # 45 tests, ~40s
+npm test     # 58 tests, ~45s
 ```
 
 - `test/mock-meta.js` is a strict fake of Meta's Graph + rupload APIs, built from Meta's docs. It checks

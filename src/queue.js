@@ -36,8 +36,11 @@ export class Queue {
   save() {
     const tmp = this.path + '.tmp';
     writeFileSync(tmp, JSON.stringify(this.#posts, null, 2));
+    // Record OUR file's mtime before the rename, so a write by the other process that lands
+    // right after ours still looks "changed" and gets picked up.
+    const mine = statSync(tmp).mtimeMs;
     renameSync(tmp, this.path);
-    this.#mtime = statSync(this.path).mtimeMs;
+    this.#mtime = mine;
   }
 
   add({ file, caption = '', publishAt, coverOffsetMs = null, platform = 'instagram_reels' }) {
@@ -80,7 +83,11 @@ export class Queue {
     if (!post) return null;
     if (!['queued', 'staged', 'ready', 'failed'].includes(post.status)) throw new Error('Already published.');
     // rev lets the scheduler notice "this post changed while I was uploading it" and discard that upload.
-    const patch = { status: 'queued', containerId: null, shareToken: null, attempts: 0, error: null, lateWarned: false, rev: (post.rev || 0) + 1 };
+    const patch = {
+      status: 'queued', containerId: null, shareToken: null, attempts: 0, stuckCount: 0, stageRetried: false,
+      error: null, lateWarned: false, rev: (post.rev || 0) + 1,
+      prevContainerId: post.containerId || post.prevContainerId || null, // checked before re-uploading
+    };
     if (caption !== undefined) patch.caption = caption;
     if (publishAt !== undefined) patch.publishAt = new Date(publishAt).toISOString();
     if (coverOffsetMs !== undefined) patch.coverOffsetMs = coverOffsetMs;
@@ -90,7 +97,11 @@ export class Queue {
   retry(id) {
     const post = this.get(id);
     if (!post || post.status !== 'failed') return null;
-    return this.update(post, { status: 'queued', containerId: null, shareToken: null, attempts: 0, error: null, lateWarned: false, stageRetried: false, rev: (post.rev || 0) + 1 }, 'retry requested');
+    return this.update(post, {
+      status: 'queued', containerId: null, shareToken: null, attempts: 0, stuckCount: 0, stageRetried: false,
+      error: null, lateWarned: false, rev: (post.rev || 0) + 1,
+      prevContainerId: post.containerId || post.prevContainerId || null, // checked before re-uploading
+    }, 'retry requested');
   }
 
   remove(id) {
