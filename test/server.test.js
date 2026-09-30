@@ -153,3 +153,19 @@ test('bad Range on the preview does not crash the app', async () => {
   assert.equal(r.status, 416);
   assert.equal((await api('/api/status')).status, 200, 'still running');
 });
+
+test('missed post: shows as missed, "Post now" works, history is readable', async () => {
+  const up = await upload(makeVideo(dir, 'm.mp4'), 'm.mp4');
+  const s = await api('/api/schedule', json('POST', { name: up.body.name, at: new Date(Date.now() + 60e3).toISOString() }));
+  const id = s.body.post.id;
+  // Pretend the Mac slept through it: move the time 5h into the past directly.
+  queue.update(queue.get(id), { publishAt: new Date(Date.now() - 5 * 3600e3).toISOString(), status: 'queued', containerId: null });
+  assert.ok(await waitFor(async () => queue.get(id).status === 'missed'));
+  assert.equal((await api(`/api/queue/${id}/post-now`, json('POST', {}))).status, 200);
+  assert.ok(await waitFor(async () => queue.get(id).status === 'published'));
+  const { body } = await api(`/api/queue/${id}/log`);
+  const msgs = body.log.map((l) => l.msg);
+  assert.ok(msgs.includes('post now requested'));
+  assert.ok(msgs.some((m) => /^missed by/.test(m)));
+  assert.equal((await api('/api/queue/nope/post-now', json('POST', {}))).status, 400);
+});

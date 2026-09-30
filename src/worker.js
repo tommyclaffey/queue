@@ -13,12 +13,15 @@
 // live (e.g. the wifi dropped after Meta published but before we heard back). So:
 //   • after any publish error we ask Meta what happened to the container
 //   • retry/edit remember the old container (prevContainerId) and check it before re-uploading
+//
+// ⏰ MISSED POSTS. If the Mac was off or asleep at post time, a post more than LATE_LIMIT_MIN
+// late is NOT posted automatically — it becomes 'missed' and waits for "Post now" or a new time.
 const STAGE_MAX_MIN = 23 * 60; // containers expire at 24h — leave an hour of margin
 export const MAX_ATTEMPTS = 6;
 export const MAX_STUCK = 3;
 const STUCK_MIN = 60; // Meta usually processes in minutes. An hour means something's wrong.
 
-export async function tick(queue, ig, { files = null, stageWindowMin = 120, log = console.log, now = Date.now() } = {}) {
+export async function tick(queue, ig, { files = null, stageWindowMin = 120, lateLimitMin = 120, notify = () => {}, log = console.log, now = Date.now() } = {}) {
   if (tick.running) return; // a slow upload must not overlap the next tick
   tick.running = true;
   try {
@@ -29,7 +32,8 @@ export async function tick(queue, ig, { files = null, stageWindowMin = 120, log 
     const windowMs = Math.min(stageWindowMin, STAGE_MAX_MIN) * 60_000;
     // Earliest first, so a backlog publishes in order.
     const posts = [...queue.posts].sort((a, b) => a.publishAt.localeCompare(b.publishAt));
-    for (const post of posts) await step(post, queue, ig, files, windowMs, log, now);
+    const ctx = { queue, ig, files, windowMs, lateLimitMs: lateLimitMin * 60_000, notify, log, now };
+    for (const post of posts) await step(post, ctx);
   } finally {
     tick.running = false;
   }
@@ -45,17 +49,31 @@ async function findLiveMedia(ig, sinceMs) {
   }
 }
 
-async function markPublished(post, queue, ig, log, tag, { mediaId = null, note }) {
+const snippet = (post) => (post.caption ? `“${post.caption.slice(0, 60)}${post.caption.length > 60 ? '…' : ''}”` : 'Your Reel');
+const clock = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+
+function markMissed(post, { queue, notify, log, now }, tag, extra = {}) {
+  const hours = Math.round((now - new Date(post.publishAt).getTime()) / 3_600_000);
+  const late = hours >= 1 ? `${hours}h` : 'over an hour';
+  queue.update(post, { status: 'missed', error: `Missed its ${clock(post.publishAt)} slot by ${late} (Mac off or asleep). Post now, pick a new time, or remove it.`, ...extra }, `missed by ${late}`);
+  log(`${tag} ⏰ missed its slot by ${late} — waiting for you`);
+  notify('Missed a post', `${snippet(post)} missed its ${clock(post.publishAt)} slot. Open Uncut to post now or reschedule.`);
+}
+
+async function markPublished(post, { queue, ig, log, notify }, tag, { mediaId = null, note }) {
   queue.update(post, { status: 'published', mediaId, publishedAt: new Date().toISOString(), error: null, prevContainerId: null }, note);
   log(`${tag} ✅ published`);
+  notify('Posted ✅', `${snippet(post)} is live on Instagram.`);
   try {
     const m = mediaId ? await ig.media(mediaId) : await findLiveMedia(ig, new Date(post.publishAt).getTime());
     queue.update(post, { permalink: m?.permalink || null, mediaId: mediaId || m?.id || null });
   } catch {}
 }
 
-async function step(post, queue, ig, files, windowMs, log, now) {
+async function step(post, ctx) {
+  const { queue, ig, files, windowMs, lateLimitMs, notify, log, now } = ctx;
   const due = new Date(post.publishAt).getTime();
+  const tooLate = now - due > lateLimitMs && !post.allowLate;
   const tag = `[${post.id}]`;
   const rev = post.rev || 0;
   // Edited, retried or removed (e.g. in the web app) while we were waiting on Meta?
@@ -66,12 +84,15 @@ async function step(post, queue, ig, files, windowMs, log, now) {
   const changed = (expectStatus) => edited() || queue.get(post.id).status !== expectStatus;
 
   try {
+    // ⏰ Way past its time and never uploaded? Don't post it by surprise — ask first.
+    if (post.status === 'queued' && tooLate) return markMissed(post, ctx, tag);
+
     // 0. Before re-uploading a retried/edited post, make sure its OLD container didn't go live.
     if (post.status === 'queued' && post.prevContainerId && due - now <= windowMs) {
       const { code } = await ig.status(post.prevContainerId);
       if (changed('queued')) return;
       if (code === 'PUBLISHED') {
-        return markPublished(post, queue, ig, log, tag, { note: 'the earlier upload had already gone live — not posting again' });
+        return markPublished(post, ctx, tag, { note: 'the earlier upload had already gone live — not posting again' });
       }
       queue.update(post, { prevContainerId: null });
     }
@@ -117,18 +138,22 @@ async function step(post, queue, ig, files, windowMs, log, now) {
         if (ig.uploadMode === 'url' && !post.stageRetried) {
           return queue.update(post, { status: 'queued', containerId: null, stageRetried: true }, `processing ERROR (${detail || 'no detail'}) — retrying once`);
         }
-        return queue.update(post, { status: 'failed', error: `Instagram couldn't process the video${detail ? ': ' + detail : ''}` }, 'processing ERROR');
+        queue.update(post, { status: 'failed', error: `Instagram couldn't process the video${detail ? ': ' + detail : ''}` }, 'processing ERROR');
+        return notify('Post failed', `${snippet(post)}: Instagram couldn't process the video.`);
       } else if (code === 'EXPIRED') {
         await release();
         return queue.update(post, { status: 'queued', containerId: null }, 'container expired — will re-stage');
       } else if (code === 'PUBLISHED') {
         await release();
-        return markPublished(post, queue, ig, log, tag, { note: 'Meta reports it already published' });
+        return markPublished(post, ctx, tag, { note: 'Meta reports it already published' });
       } else if (now - new Date(post.stagedAt).getTime() > STUCK_MIN * 60_000) {
         await release();
         // Counted separately from `attempts`, which a successful upload resets.
         const stuck = (post.stuckCount || 0) + 1;
-        if (stuck >= MAX_STUCK) return queue.update(post, { status: 'failed', stuckCount: stuck, containerId: null, error: `Instagram was still processing after ${STUCK_MIN} min, ${stuck} times in a row` }, 'stuck — giving up');
+        if (stuck >= MAX_STUCK) {
+          queue.update(post, { status: 'failed', stuckCount: stuck, containerId: null, error: `Instagram was still processing after ${STUCK_MIN} min, ${stuck} times in a row` }, 'stuck — giving up');
+          return notify('Post failed', `${snippet(post)}: Instagram never finished processing it.`);
+        }
         return queue.update(post, { status: 'queued', containerId: null, stuckCount: stuck }, `stuck in ${code} for ${STUCK_MIN}+ min — re-staging`);
       } else if (post.shareToken && files && !files.has(post.shareToken)) {
         // App restarted or tunnel died mid-download: the link is dead. Start over rather than wait for ERROR.
@@ -138,6 +163,7 @@ async function step(post, queue, ig, files, windowMs, log, now) {
 
     // 3. Fire at the scheduled time.
     if (post.status === 'ready' && now >= due) {
+      if (tooLate) return markMissed(post, ctx, tag); // keeps containerId, so "Post now" is instant
       const { used, total } = await ig.quota();
       if (used >= total) return log(`${tag} holding — ${total} posts/24h API limit reached`);
       if (changed('ready')) return log(`${tag} changed just before posting — skipping`);
@@ -151,13 +177,13 @@ async function step(post, queue, ig, files, windowMs, log, now) {
         try {
           ({ code } = await ig.status(post.containerId));
         } catch {}
-        if (code === 'PUBLISHED') return markPublished(post, queue, ig, log, tag, { note: 'publish reply was lost, but Meta confirms it is live' });
+        if (code === 'PUBLISHED') return markPublished(post, ctx, tag, { note: 'publish reply was lost, but Meta confirms it is live' });
         if (code === 'EXPIRED') return queue.update(post, { status: 'queued', containerId: null }, 'container expired before posting — will re-stage');
         throw err; // FINISHED (not live) or unknown: safe to try the SAME container again
       }
       if (changed('ready')) log(`${tag} was edited while posting — the earlier version went live`);
       const lateBy = Math.round((Date.now() - due) / 1000);
-      return markPublished(post, queue, ig, log, tag, { mediaId, note: `published ${mediaId} (${lateBy}s after target)` });
+      return markPublished(post, ctx, tag, { mediaId, note: `published ${mediaId} (${lateBy}s after target)` });
     }
 
     if (['queued', 'staged'].includes(post.status) && now - due > 15 * 60_000 && !post.lateWarned) {
@@ -174,6 +200,7 @@ async function step(post, queue, ig, files, windowMs, log, now) {
       // Keep containerId: if this was a publish, Retry will check whether it secretly went live.
       queue.update(post, { status: 'failed', attempts, error: err.message, shareToken: null }, `error: ${err.message}`);
       log(`${tag} ❌ ${err.message}`);
+      notify('Post failed', `${snippet(post)}: ${err.message}`);
     }
   }
 }

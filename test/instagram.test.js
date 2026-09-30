@@ -357,10 +357,11 @@ test('container expired while waiting to post → re-uploaded, not failed', asyn
 test('stuck processing forever → fails after 3 hour-long tries (no endless re-uploads)', async () => {
   const ig = client();
   let t = Date.now();
-  const post = queue.add({ file: video, publishAt: t + 100 * 60e3 });
+  // Post time far enough ahead that 3 stuck hours don't make it late.
+  const post = queue.add({ file: video, publishAt: t + 20 * HOUR });
   meta.state.forceStatus = 'IN_PROGRESS';
   for (let i = 0; i < 20 && queue.get(post.id).status !== 'failed'; i++) {
-    await tick(queue, ig, { log: quiet, now: t });
+    await tick(queue, ig, { log: quiet, now: t, stageWindowMin: 23 * 60 });
     t += 61 * 60e3;
   }
   const p = queue.get(post.id);
@@ -438,4 +439,70 @@ test('upload server says "not authorized" → fails at once with the real reason
   assert.equal(p.status, 'failed');
   assert.match(p.error, /User not authorized to perform this request/);
   assert.match(p.error, /NotAuthorizedError/);
+});
+
+// ---------- ⏰ Missed posts + notifications ----------
+
+test('⏰ Mac was off: post 5h late is NOT posted by surprise — it waits as "missed"', async () => {
+  const notes = [];
+  const post = queue.add({ file: video, caption: 'Sunday recap', publishAt: Date.now() - 5 * HOUR });
+  await tick(queue, client(), { log: quiet, notify: (t, m) => notes.push(t) });
+  const p = queue.get(post.id);
+  assert.equal(p.status, 'missed');
+  assert.match(p.error, /Missed its .* slot by 5h/);
+  assert.equal(meta.state.containers.size, 0, 'nothing uploaded');
+  assert.deepEqual(notes, ['Missed a post']);
+});
+
+test('⏰ a few minutes late (Mac just woke up) → still posts normally', async () => {
+  const post = queue.add({ file: video, publishAt: Date.now() - 10 * 60e3 });
+  for (let i = 0; i < 3; i++) await run(client());
+  assert.equal(queue.get(post.id).status, 'published');
+});
+
+test('⏰ missed → "Post now" → uploads and posts immediately', async () => {
+  const post = queue.add({ file: video, publishAt: Date.now() - 5 * HOUR });
+  await run(client());
+  assert.equal(queue.get(post.id).status, 'missed');
+  assert.ok(queue.postNow(post.id));
+  for (let i = 0; i < 3; i++) await run(client());
+  assert.equal(queue.get(post.id).status, 'published');
+  assert.equal(meta.state.published, 1);
+});
+
+test('⏰ was ready (already uploaded) when missed → "Post now" reuses the upload', async () => {
+  const ig = client();
+  const post = queue.add({ file: video, publishAt: Date.now() + 60e3 });
+  for (let i = 0; i < 2; i++) await run(ig);
+  assert.equal(queue.get(post.id).status, 'ready');
+  await run(ig, Date.now() + 5 * HOUR); // Mac slept through the slot
+  assert.equal(queue.get(post.id).status, 'missed');
+  assert.ok(queue.get(post.id).containerId, 'upload kept');
+  queue.postNow(post.id);
+  await run(ig, Date.now() + 5 * HOUR);
+  assert.equal(queue.get(post.id).status, 'published');
+  assert.equal(meta.state.containers.size, 1, 'no second upload');
+});
+
+test('⏰ missed → edit to a new time → back on the schedule', async () => {
+  const post = queue.add({ file: video, publishAt: Date.now() - 5 * HOUR });
+  await run(client());
+  queue.edit(post.id, { publishAt: Date.now() + 30 * 60e3 });
+  const p = queue.get(post.id);
+  assert.equal(p.status, 'queued');
+  await run(client());
+  assert.equal(queue.get(post.id).status, 'staged');
+});
+
+test('🔔 notifications: posted and failed', async () => {
+  const notes = [];
+  const notify = (t, m) => notes.push(`${t}: ${m}`);
+  const a = queue.add({ file: video, caption: 'Good one', publishAt: Date.now() - 1000 });
+  for (let i = 0; i < 3; i++) await tick(queue, client(), { log: quiet, notify });
+  assert.equal(queue.get(a.id).status, 'published');
+  assert.ok(notes.some((n) => /^Posted ✅: “Good one” is live/.test(n)));
+  const b = queue.add({ file: video, caption: 'Bad one', publishAt: Date.now() + 60e3 });
+  await tick(queue, client({ token: 'expired' }), { log: quiet, notify });
+  assert.equal(queue.get(b.id).status, 'failed');
+  assert.ok(notes.some((n) => /^Post failed: “Bad one”/.test(n)));
 });

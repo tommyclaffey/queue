@@ -81,11 +81,11 @@ export class Queue {
   edit(id, { caption, publishAt, coverOffsetMs }) {
     const post = this.get(id);
     if (!post) return null;
-    if (!['queued', 'staged', 'ready', 'failed'].includes(post.status)) throw new Error('Already published.');
+    if (!['queued', 'staged', 'ready', 'failed', 'missed'].includes(post.status)) throw new Error('Already published.');
     // rev lets the scheduler notice "this post changed while I was uploading it" and discard that upload.
     const patch = {
       status: 'queued', containerId: null, shareToken: null, attempts: 0, stuckCount: 0, stageRetried: false,
-      error: null, lateWarned: false, rev: (post.rev || 0) + 1,
+      error: null, lateWarned: false, allowLate: false, rev: (post.rev || 0) + 1,
       prevContainerId: post.containerId || post.prevContainerId || null, // checked before re-uploading
     };
     if (caption !== undefined) patch.caption = caption;
@@ -102,6 +102,17 @@ export class Queue {
       error: null, lateWarned: false, rev: (post.rev || 0) + 1,
       prevContainerId: post.containerId || post.prevContainerId || null, // checked before re-uploading
     }, 'retry requested');
+  }
+
+  // A 'missed' post, posted anyway on your say-so. If it's still uploaded and processed on
+  // Meta's side, it goes out on the next tick; otherwise it's uploaded first.
+  postNow(id) {
+    const post = this.get(id);
+    if (!post || post.status !== 'missed') return null;
+    const patch = { allowLate: true, error: null, attempts: 0, rev: (post.rev || 0) + 1 };
+    if (post.containerId) patch.status = 'ready';
+    else Object.assign(patch, { status: 'queued', stageRetried: false, stuckCount: 0 });
+    return this.update(post, patch, 'post now requested');
   }
 
   remove(id) {

@@ -5,6 +5,7 @@ import { InstagramClient } from './instagram.js';
 import { FileShare } from './fileshare.js';
 import { TokenStore } from './token.js';
 import { Queue } from './queue.js';
+import { makeNotifier } from './notify.js';
 
 export function loadConfig(root) {
   if (existsSync(join(root, '.env'))) process.loadEnvFile(join(root, '.env'));
@@ -31,6 +32,8 @@ export function loadConfig(root) {
     queue: new Queue(join(root, 'data', 'queue.json')),
     files: new FileShare({ publicBaseUrl: env.PUBLIC_BASE_URL || null, port: Number(env.SHARE_PORT || 0), log }),
     stageWindowMin: Number(env.STAGE_WINDOW_MIN || 120),
+    lateLimitMin: Number(env.LATE_LIMIT_MIN || 120),
+    notify: makeNotifier(),
     port: Number(env.PORT || 4400),
   };
 }

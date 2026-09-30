@@ -14,7 +14,7 @@ import { tick } from './worker.js';
 
 const TYPES = { '.html': 'text/html', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/mp4' };
 
-export function startServer({ root, queue, ig, files = null, tokens = null, port = 4400, stageWindowMin = 120, log = console.log, tickMs = 30_000, mediaDir = join(root, 'media') }) {
+export function startServer({ root, queue, ig, files = null, tokens = null, port = 4400, stageWindowMin = 120, lateLimitMin = 120, notify = () => {}, log = console.log, tickMs = 30_000, mediaDir = join(root, 'media') }) {
   mkdirSync(mediaDir, { recursive: true });
   let account = null;
   let accountError = null;
@@ -136,7 +136,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         if (!recheck.ok) return send(res, 400, { error: 'Still failing after the fix: ' + recheck.issues.map((i) => i.msg).join('; ') });
 
         const post = queue.add({ file: ready, caption, publishAt: when, coverOffsetMs: cover });
-        return send(res, 200, { post, fixed: result.plan });
+        return send(res, 200, { post: { ...post, shareToken: undefined }, fixed: result.plan });
       }
 
       if (resource === 'queue') {
@@ -157,13 +157,21 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
           const existing = queue.get(id);
           const post = queue.edit(id, patch);
           if (post && existing?.shareToken && files) await files.unshare(existing.shareToken);
-          return post ? send(res, 200, { post }) : send(res, 404, { error: 'No post with that id.' });
+          return post ? send(res, 200, { post: { ...post, shareToken: undefined } }) : send(res, 404, { error: 'No post with that id.' });
+        }
+        if (req.method === 'GET' && id && action === 'log') {
+          const post = queue.get(id);
+          return post ? send(res, 200, { log: post.log || [] }) : send(res, 404, { error: 'No post with that id.' });
+        }
+        if (req.method === 'POST' && id && action === 'post-now') {
+          const post = queue.postNow(id);
+          return post ? send(res, 200, { post: { ...post, shareToken: undefined } }) : send(res, 400, { error: 'Only missed posts can be posted now.' });
         }
         if (req.method === 'POST' && id && action === 'retry') {
           const before = queue.get(id);
           const post = queue.retry(id);
           if (post && before?.shareToken && files) await files.unshare(before.shareToken);
-          return post ? send(res, 200, { post }) : send(res, 400, { error: 'Only failed posts can be retried.' });
+          return post ? send(res, 200, { post: { ...post, shareToken: undefined } }) : send(res, 400, { error: 'Only failed posts can be retried.' });
         }
         if (req.method === 'DELETE' && id) {
           const post = queue.get(id);
@@ -187,7 +195,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
   const loop = async () => {
     try {
       if (tokens) await tokens.maybeRefresh(ig, { log });
-      await tick(queue, ig, { files, stageWindowMin, log });
+      await tick(queue, ig, { files, stageWindowMin, lateLimitMin, notify, log });
     } catch (err) {
       log(`scheduler error: ${err.message}`);
     }

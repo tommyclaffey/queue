@@ -132,13 +132,18 @@ try {
       break;
     }
 
+    case 'post-now': {
+      console.log(cfg.queue.postNow(pos[0]) ? 'Posting on the next tick (within 30s) while the scheduler is running.' : 'No missed post with that id.');
+      break;
+    }
+
     case 'retry': {
       console.log(cfg.queue.retry(pos[0]) ? 'Back in the queue.' : 'No failed post with that id.');
       break;
     }
 
     case 'run': {
-      const { ig, queue, files, tokens, log, stageWindowMin } = cfg;
+      const { ig, queue, files, tokens, log, stageWindowMin, lateLimitMin, notify } = cfg;
       acquireLock(join(ROOT, 'data', 'scheduler.lock'));
       keepAwake();
       console.log(ig.dryRun ? '🧪 DRY RUN — no token set, nothing will actually post.' : `🟢 LIVE — ${ig.login} login, ${ig.uploadMode} upload`);
@@ -146,7 +151,7 @@ try {
       const loop = async () => {
         try {
           await tokens.maybeRefresh(ig, { log });
-          await tick(queue, ig, { files, stageWindowMin, log });
+          await tick(queue, ig, { files, stageWindowMin, lateLimitMin, notify, log });
         } catch (err) {
           log(`scheduler error: ${err.message}`); // keep running; the next tick tries again
         }
@@ -256,7 +261,7 @@ try {
   Commands
     uncut check <video>                                inspect a file against Instagram's spec
     uncut add <video> --at "YYYY-MM-DD HH:MM" [--caption "..."] [--cover <seconds>]
-    uncut list | remove <id> | retry <id>
+    uncut list | remove <id> | retry <id> | post-now <id>
     uncut run                                          scheduler only, no web app
     uncut doctor [--tunnel]                            check your Meta connection
     uncut compare <original> <posted-file>             measure quality loss

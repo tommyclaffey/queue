@@ -62,7 +62,11 @@
   .status.published { background: var(--ok-bg); color: var(--ok); }
   .status.failed { background: var(--err-bg); color: var(--err); }
   .status.staged, .status.ready { background: var(--info-bg); color: var(--info); }
-  .status.retrying { background: var(--warn-bg); color: var(--warn); }
+  .status.retrying, .status.missed { background: var(--warn-bg); color: var(--warn); }
+  tr.history td { background: #fafaf8; padding-top: 0; border-top: 0; }
+  ol.log { list-style: none; margin: 0; padding: 6px 0 4px; display: grid; gap: 4px; font-size: 12.5px; }
+  ol.log li { display: grid; grid-template-columns: 150px 1fr; gap: 12px; color: var(--muted); }
+  ol.log li span:last-child { color: var(--ink); }
   .empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
   .sub { font-size: 12px; margin-top: 4px; color: var(--muted); }
   .sub.err { color: var(--err); }
@@ -151,7 +155,29 @@ const VERDICT = {
   hdr: "🎨 HDR gets converted to standard colour (Apple's converter), then one clean encode.",
 };
 const STATUS = {
-  queued: 'Queued', staged: 'Sending to Instagram', ready: 'Ready to post', published: 'Posted', failed: 'Failed',
+  queued: 'Queued', staged: 'Sending to Instagram', ready: 'Ready to post', published: 'Posted', failed: 'Failed', missed: 'Missed',
+};
+
+// Scheduler log lines → plain English for the History view.
+const FRIENDLY = [
+  [/^queued$/, 'Scheduled'],
+  [/^staged /, 'Sent to Instagram (processing)'],
+  [/^Instagram finished processing$/, 'Instagram finished processing — ready to post'],
+  [/^published (\S+) \((-?\d+)s after target\)$/, (m) => `Posted ✅ (${Math.max(0, +m[2])}s after the set time)`],
+  [/^edited$/, 'Edited — will re-send to Instagram'],
+  [/^retry requested$/, 'Retry requested'],
+  [/^post now requested$/, 'Post now requested'],
+  [/^missed by (.+)$/, (m) => `Missed its time by ${m[1]} (Mac off or asleep)`],
+  [/^container expired/, 'Instagram discarded the upload after 24h — re-sending'],
+  [/^transient error: (.+)$/, (m) => `Temporary problem, will retry: ${m[1]}`],
+  [/^error: (.+)$/, (m) => `Failed: ${m[1]}`],
+];
+const friendly = (msg) => {
+  for (const [re, out] of FRIENDLY) {
+    const m = re.exec(msg);
+    if (m) return typeof out === 'function' ? out(m) : out;
+  }
+  return msg;
 };
 
 async function api(path, opts = {}) {
@@ -286,7 +312,12 @@ async function loadQueue() {
   if (editingId) return; // don't wipe an edit in progress
   const { posts } = await api('/api/queue');
   $('empty').classList.toggle('hidden', posts.length > 0);
-  $('queue').replaceChildren(...posts.map(row));
+  const rows = [];
+  for (const p of posts) {
+    rows.push(row(p));
+    if (openHistory.has(p.id)) rows.push(await historyRow(p.id));
+  }
+  $('queue').replaceChildren(...rows);
 }
 
 function row(p) {
@@ -307,6 +338,7 @@ function row(p) {
   if (p.status === 'published') {
     if (p.permalink) actions.append(el('a', { href: p.permalink, target: '_blank', rel: 'noopener', textContent: 'View post ↗' }));
   } else {
+    if (p.status === 'missed') btn('Post now', async () => { await api(`/api/queue/${p.id}/post-now`, { method: 'POST' }); loadQueue(); }, 'secondary');
     if (p.status === 'failed') btn('Retry', async () => { await api(`/api/queue/${p.id}/retry`, { method: 'POST' }); loadQueue(); });
     btn('Edit', () => startEdit(p));
     btn('Remove', async () => {
@@ -315,8 +347,24 @@ function row(p) {
       loadQueue();
     }, 'ghost danger');
   }
+  btn('History', () => toggleHistory(p.id));
   const tr = el('tr', {}, when, cap, status, actions);
   tr.dataset.id = p.id;
+  return tr;
+}
+
+const openHistory = new Set();
+async function toggleHistory(id) {
+  if (openHistory.has(id)) openHistory.delete(id); else openHistory.add(id);
+  loadQueue();
+}
+async function historyRow(id) {
+  const { log } = await api(`/api/queue/${id}/log`);
+  const items = log.map((l) => el('li', {},
+    el('span', { textContent: new Date(l.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' }) }),
+    el('span', { textContent: friendly(l.msg) })));
+  const tr = el('tr', { className: 'history' }, el('td', { colSpan: 4 }, el('ol', { className: 'log' }, ...items)));
+  tr.dataset.historyFor = id;
   return tr;
 }
 
