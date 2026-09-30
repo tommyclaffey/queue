@@ -27,6 +27,12 @@ export async function tick(queue, ig, { files = null, stageWindowMin = 120, log 
 async function step(post, queue, ig, files, windowMs, log, now) {
   const due = new Date(post.publishAt).getTime();
   const tag = `[${post.id}]`;
+  const rev = post.rev || 0;
+  // True if the post was edited, retried or removed (e.g. in the web app) while we were awaiting Meta.
+  const changed = (expectStatus) => {
+    const live = queue.get(post.id);
+    return !live || (live.rev || 0) !== rev || live.status !== expectStatus;
+  };
   try {
     // 1. Upload early so Instagram finishes processing before the post time.
     if (post.status === 'queued' && due - now <= windowMs) {
@@ -40,6 +46,12 @@ async function step(post, queue, ig, files, windowMs, log, now) {
       }
       try {
         const containerId = await ig.stage({ file: post.file, videoUrl: share?.url, caption: post.caption, coverOffsetMs: post.coverOffsetMs });
+        // Edited or removed in the web app while uploading? Throw this upload away.
+        if (changed('queued')) {
+          if (share) await files.unshare(share.token);
+          log(`${tag} changed during upload — discarding that upload`);
+          return;
+        }
         queue.update(post, { status: 'staged', containerId, shareToken: share?.token || null, stagedAt: new Date(now).toISOString(), attempts: 0, error: null }, `staged ${containerId}`);
       } catch (err) {
         if (share) await files.unshare(share.token);
@@ -50,6 +62,7 @@ async function step(post, queue, ig, files, windowMs, log, now) {
     // 2. Wait for Meta's processing to finish.
     if (post.status === 'staged') {
       const { code, detail } = await ig.status(post.containerId);
+      if (changed('staged')) return log(`${tag} changed while checking Instagram — skipping`);
       const release = async () => {
         if (post.shareToken && files) await files.unshare(post.shareToken);
         if (post.shareToken) queue.update(post, { shareToken: null });
@@ -85,8 +98,11 @@ async function step(post, queue, ig, files, windowMs, log, now) {
     if (post.status === 'ready' && now >= due) {
       const { used, total } = await ig.quota();
       if (used >= total) return log(`${tag} holding — ${total} posts/24h API limit reached`);
+      if (changed('ready')) return log(`${tag} changed just before posting — skipping`);
 
       const mediaId = await ig.publish(post.containerId);
+      // Posted is posted: record it even if someone edited in the last second.
+      if (changed('ready')) log(`${tag} was edited while posting — the earlier version went live`);
       const lateBy = Math.round((Date.now() - due) / 1000);
       queue.update(post, { status: 'published', mediaId, publishedAt: new Date().toISOString(), error: null }, `published ${mediaId} (${lateBy}s after target)`);
       log(`${tag} ✅ published`);

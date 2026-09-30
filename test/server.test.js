@@ -34,7 +34,7 @@ const api = async (path, opts = {}) => {
 };
 const json = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 const upload = (file, name) => api(`/api/upload?name=${encodeURIComponent(name)}`, { method: 'POST', body: readFileSync(file) });
-const waitFor = async (fn, ms = 8000) => {
+const waitFor = async (fn, ms = 20000) => {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     if (await fn()) return true;

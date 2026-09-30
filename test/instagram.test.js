@@ -256,3 +256,54 @@ test('stuck processing for 60+ min → re-staged instead of waiting forever', as
   assert.equal(p.status, 'queued');
   assert.ok(p.log.some((l) => /stuck/.test(l.msg)));
 });
+
+test('caption edited WHILE uploading → that upload is discarded and the new caption is used', async () => {
+  const ig = client();
+  const post = queue.add({ file: video, caption: 'old caption', publishAt: Date.now() + 60e3 });
+  // Simulate the web app editing the post in the middle of the upload.
+  const realStage = ig.stage.bind(ig);
+  let once = true;
+  ig.stage = async (args) => {
+    const id = await realStage(args);
+    if (once) { once = false; queue.edit(post.id, { caption: 'new caption' }); }
+    return id;
+  };
+  await run(ig);
+  assert.equal(queue.get(post.id).status, 'queued', 'stale upload thrown away');
+  await run(ig);
+  const p = queue.get(post.id);
+  assert.equal(p.status, 'staged');
+  assert.equal(meta.state.containers.get(p.containerId).params.caption, 'new caption');
+});
+
+test('post removed WHILE uploading → it does not come back', async () => {
+  const ig = client();
+  const post = queue.add({ file: video, publishAt: Date.now() + 60e3 });
+  const realStage = ig.stage.bind(ig);
+  ig.stage = async (args) => { const id = await realStage(args); queue.remove(post.id); return id; };
+  await run(ig);
+  assert.equal(queue.get(post.id), null);
+  assert.equal(queue.posts.length, 0);
+});
+
+test('edit lands while checking processing status → the edit wins, nothing points at a dead upload', async () => {
+  const ig = client();
+  const post = queue.add({ file: video, caption: 'v1', publishAt: Date.now() + 60e3 });
+  await run(ig); // staged
+  const realStatus = ig.status.bind(ig);
+  let once = true;
+  ig.status = async (id) => {
+    const r = await realStatus(id);
+    if (once) { once = false; queue.edit(post.id, { caption: 'v2' }); }
+    return { code: 'FINISHED' };
+  };
+  await run(ig);
+  const p = queue.get(post.id);
+  assert.equal(p.status, 'queued', 'edit not overwritten by the stale FINISHED');
+  assert.equal(p.containerId, null);
+  ig.status = realStatus;
+  for (let i = 0; i < 3; i++) await run(ig);
+  const q = queue.get(post.id);
+  assert.ok(['ready', 'staged'].includes(q.status));
+  assert.equal(meta.state.containers.get(q.containerId).params.caption, 'v2');
+});

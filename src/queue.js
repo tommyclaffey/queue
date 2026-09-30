@@ -79,7 +79,8 @@ export class Queue {
     const post = this.get(id);
     if (!post) return null;
     if (!['queued', 'staged', 'ready', 'failed'].includes(post.status)) throw new Error('Already published.');
-    const patch = { status: 'queued', containerId: null, attempts: 0, error: null, lateWarned: false };
+    // rev lets the scheduler notice "this post changed while I was uploading it" and discard that upload.
+    const patch = { status: 'queued', containerId: null, shareToken: null, attempts: 0, error: null, lateWarned: false, rev: (post.rev || 0) + 1 };
     if (caption !== undefined) patch.caption = caption;
     if (publishAt !== undefined) patch.publishAt = new Date(publishAt).toISOString();
     if (coverOffsetMs !== undefined) patch.coverOffsetMs = coverOffsetMs;
@@ -89,7 +90,7 @@ export class Queue {
   retry(id) {
     const post = this.get(id);
     if (!post || post.status !== 'failed') return null;
-    return this.update(post, { status: 'queued', containerId: null, attempts: 0, error: null, lateWarned: false }, 'retry requested');
+    return this.update(post, { status: 'queued', containerId: null, shareToken: null, attempts: 0, error: null, lateWarned: false, stageRetried: false, rev: (post.rev || 0) + 1 }, 'retry requested');
   }
 
   remove(id) {
