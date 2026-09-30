@@ -8,17 +8,21 @@
   :root {
     --bg: #f6f5f2; --surface: #fff; --ink: #1a1a1a; --muted: #6b6b6b; --line: #e4e2dd;
     --accent: #1a1a1a; --ok: #1f7a4a; --ok-bg: #e7f4ec; --warn: #8a5a00; --warn-bg: #fdf3dc;
-    --err: #b3261e; --err-bg: #fbe9e7; --radius: 14px;
+    --err: #b3261e; --err-bg: #fbe9e7; --info: #2449a8; --info-bg: #e8eefc; --radius: 14px;
   }
   * { box-sizing: border-box; }
   body { margin: 0; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Inter", sans-serif; background: var(--bg); color: var(--ink); }
-  header { display: flex; align-items: center; justify-content: space-between; padding: 20px 32px; border-bottom: 1px solid var(--line); background: var(--surface); }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 32px; border-bottom: 1px solid var(--line); background: var(--surface); }
   h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
   h1 span { color: var(--muted); font-weight: 400; }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 14px; }
-  .pill { font-size: 13px; padding: 4px 12px; border-radius: 99px; font-weight: 600; }
-  .pill.dry { background: var(--warn-bg); color: var(--warn); }
+  .pills { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .pill { font-size: 13px; padding: 4px 12px; border-radius: 99px; font-weight: 600; white-space: nowrap; }
+  .pill.dry, .pill.warn { background: var(--warn-bg); color: var(--warn); }
   .pill.live { background: var(--ok-bg); color: var(--ok); }
+  .pill.err { background: var(--err-bg); color: var(--err); }
+  .banner { max-width: 1200px; margin: 20px auto 0; padding: 0 32px; }
+  .banner div { background: var(--err-bg); color: var(--err); border-radius: 10px; padding: 12px 16px; font-size: 14px; }
   main { display: grid; grid-template-columns: 340px 1fr; gap: 24px; padding: 28px 32px; max-width: 1200px; margin: 0 auto; }
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
   .phone { aspect-ratio: 9 / 16; background: #111; border-radius: 22px; overflow: hidden; display: grid; place-items: center; position: relative; }
@@ -26,6 +30,8 @@
   .drop { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: #bbb; cursor: pointer; padding: 24px; border: 2px dashed #333; border-radius: 22px; }
   .drop.over { border-color: #fff; color: #fff; }
   .drop b { color: #fff; display: block; font-size: 16px; margin-bottom: 4px; }
+  .cover { display: none; align-items: center; justify-content: space-between; gap: 12px; margin-top: -12px; }
+  .cover small { color: var(--muted); }
   .stack { display: grid; gap: 24px; align-content: start; }
   .meta { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
   .verdict { padding: 12px 14px; border-radius: 10px; font-weight: 600; margin-bottom: 12px; }
@@ -42,27 +48,38 @@
   .field { margin-bottom: 16px; }
   button { font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 12px 18px; cursor: pointer; background: var(--accent); color: #fff; }
   button:disabled { opacity: 0.4; cursor: not-allowed; }
-  button.ghost { background: transparent; color: var(--muted); padding: 6px 10px; font-weight: 500; }
-  button.ghost:hover { color: var(--err); }
+  button.secondary { background: #fff; color: var(--ink); border: 1px solid var(--line); padding: 8px 12px; font-size: 13px; }
+  button.ghost { background: transparent; color: var(--muted); padding: 6px 8px; font-weight: 500; font-size: 13px; }
+  button.ghost:hover { color: var(--ink); }
+  button.ghost.danger:hover { color: var(--err); }
   .msg { font-size: 14px; margin-top: 12px; min-height: 20px; }
   .msg.err { color: var(--err); } .msg.ok { color: var(--ok); }
   table { width: 100%; border-collapse: collapse; }
   td, th { text-align: left; padding: 12px 8px; border-top: 1px solid var(--line); font-size: 14px; vertical-align: middle; }
   th { border-top: 0; font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  td.actions { text-align: right; white-space: nowrap; }
   .status { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 99px; background: #eee; white-space: nowrap; }
   .status.published { background: var(--ok-bg); color: var(--ok); }
   .status.failed { background: var(--err-bg); color: var(--err); }
-  .status.staged, .status.ready { background: #e8eefc; color: #2449a8; }
+  .status.staged, .status.ready { background: var(--info-bg); color: var(--info); }
+  .status.retrying { background: var(--warn-bg); color: var(--warn); }
   .empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
-  .err-line { color: var(--err); font-size: 12px; margin-top: 4px; }
-  .hidden { display: none; }
+  .sub { font-size: 12px; margin-top: 4px; color: var(--muted); }
+  .sub.err { color: var(--err); }
+  a { color: var(--info); }
+  tr.editing td { background: #fafaf8; }
+  .edit-grid { display: grid; grid-template-columns: 1fr 220px; gap: 10px; }
+  .edit-grid textarea { min-height: 70px; }
+  .row-btns { margin-top: 10px; display: flex; gap: 6px; }
+  .hidden { display: none !important; }
 </style>
 </head>
 <body>
 <header>
   <h1>Uncut <span>· Reel scheduler</span></h1>
-  <span id="mode" class="pill dry">…</span>
+  <div class="pills" id="pills"></div>
 </header>
+<div class="banner hidden" id="banner"><div id="bannerText"></div></div>
 
 <main>
   <!-- LEFT: the video -->
@@ -70,9 +87,13 @@
     <div class="phone" id="phone">
       <video id="preview" controls playsinline></video>
       <div class="drop" id="drop">
-        <div><b>Drop a Reel here</b>or click to choose<br /><small>MP4 or MOV</small></div>
+        <div id="dropText"></div>
       </div>
       <input type="file" id="picker" accept="video/*" class="hidden" />
+    </div>
+    <div class="cover" id="coverRow">
+      <small id="coverLabel">Cover: Instagram picks</small>
+      <button class="secondary" id="coverBtn" title="Pause the video on the frame you want, then click">Use this frame as cover</button>
     </div>
     <div class="card hidden" id="checkCard">
       <h2>Quality check</h2>
@@ -112,7 +133,15 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
+// Tiny element builder. Uses textContent everywhere, so captions can never inject HTML.
+const el = (tag, props = {}, ...kids) => {
+  const n = Object.assign(document.createElement(tag), props);
+  kids.forEach((k) => k != null && n.append(k));
+  return n;
+};
 let uploaded = null;
+let coverMs = null;
+let editingId = null;
 
 const VERDICT = {
   none: '✅ Ships untouched. Instagram gets your original file.',
@@ -120,7 +149,9 @@ const VERDICT = {
   'audio-only': '🔧 Audio fix on schedule. The video stays identical.',
   reencode: '🎞 One clean re-encode on schedule. Better you do it than Instagram.',
 };
-const STATUS_LABEL = { queued: 'Queued', staged: 'Uploading', ready: 'Ready', published: 'Posted', failed: 'Failed' };
+const STATUS = {
+  queued: 'Queued', staged: 'Sending to Instagram', ready: 'Ready to post', published: 'Posted', failed: 'Failed',
+};
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -128,13 +159,30 @@ async function api(path, opts) {
   if (!res.ok) throw new Error(body.error || 'Something went wrong');
   return body;
 }
+const json = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
+// Local time string for <input type="datetime-local">
+const toLocalInput = (d) => new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+const fmtWhen = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+// ---------- Status ----------
 async function loadStatus() {
   const s = await api('/api/status');
-  const m = $('mode');
-  m.textContent = s.dryRun ? '🧪 Dry run: nothing really posts' : '🟢 Live';
-  m.className = 'pill ' + (s.dryRun ? 'dry' : 'live');
-  if (!s.ffmpeg) setMsg('ffmpeg is missing. Run: brew install ffmpeg', true);
+  const pills = $('pills');
+  pills.replaceChildren();
+  const pill = (cls, text) => pills.append(el('span', { className: 'pill ' + cls, textContent: text }));
+  if (s.dryRun) pill('dry', '🧪 Dry run: nothing really posts');
+  else if (s.account) pill('live', `🟢 Live · @${s.account}`);
+  else if (s.accountError) pill('err', '🔴 Not connected');
+  else pill('warn', 'Connecting…');
+  if (s.tokenDaysLeft != null && s.tokenDaysLeft < 10) pill('warn', `Login key: ${s.tokenDaysLeft} days left`);
+
+  const problems = [];
+  if (!s.ffmpeg) problems.push('ffmpeg is missing. In Terminal run: brew install ffmpeg');
+  if (!s.dryRun && s.uploadMode === 'url' && !s.cloudflared) problems.push('cloudflared is missing. In Terminal run: brew install cloudflared');
+  if (s.accountError) problems.push(`Instagram connection failed: ${s.accountError}. Run "node bin/uncut.js doctor" for help.`);
+  $('banner').classList.toggle('hidden', !problems.length);
+  $('bannerText').textContent = problems.join(' · ');
 }
 
 function setMsg(text, isErr) {
@@ -144,29 +192,44 @@ function setMsg(text, isErr) {
 
 // ---------- Upload ----------
 const drop = $('drop');
+const video = $('preview');
 drop.onclick = () => $('picker').click();
 $('picker').onchange = (e) => e.target.files[0] && upload(e.target.files[0]);
 ['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
 drop.addEventListener('drop', (e) => e.dataTransfer.files[0] && upload(e.dataTransfer.files[0]));
 
+function resetDrop() {
+  $('dropText').replaceChildren(el('b', { textContent: 'Drop a Reel here' }), 'or click to choose', el('br'), el('small', { textContent: 'MP4 or MOV' }));
+}
+
 async function upload(file) {
-  drop.querySelector('div').innerHTML = '<b>Checking…</b>' + file.name;
+  $('dropText').replaceChildren(el('b', { textContent: 'Checking…' }), file.name);
   setMsg('');
   try {
     const r = await api('/api/upload?name=' + encodeURIComponent(file.name), { method: 'POST', body: file });
     uploaded = r;
     showCheck(r);
-    const v = $('preview');
-    v.src = '/media/' + encodeURIComponent(r.name);
-    v.style.display = 'block';
+    video.src = '/media/' + encodeURIComponent(r.name);
+    video.style.display = 'block';
     drop.style.display = 'none';
+    $('coverRow').style.display = 'flex';
     $('schedule').disabled = !!r.result.needsTrim;
+    if (!$('at').value) {
+      const d = new Date(Date.now() + 3600e3);
+      d.setMinutes(0, 0, 0);
+      $('at').value = toLocalInput(d);
+    }
   } catch (err) {
-    drop.querySelector('div').innerHTML = '<b>Drop a Reel here</b>or click to choose';
+    resetDrop();
     setMsg(err.message, true);
   }
 }
+
+$('coverBtn').onclick = () => {
+  coverMs = Math.round(video.currentTime * 1000);
+  $('coverLabel').textContent = `Cover: frame at ${video.currentTime.toFixed(1)}s`;
+};
 
 function showCheck({ info, result }) {
   $('checkCard').classList.remove('hidden');
@@ -174,15 +237,8 @@ function showCheck({ info, result }) {
   $('specLine').textContent = `${v.width}×${v.height} · ${v.codec} · ${Math.round(v.fps)} fps · ${(info.bytes / 1048576).toFixed(1)} MB · ${info.durationSec.toFixed(1)}s`;
   const verdict = $('verdict');
   verdict.textContent = result.needsTrim ? '✂️ Out of the 3s–15min range. Trim it in your editor.' : VERDICT[result.plan];
-  verdict.className = 'verdict ' + (result.plan === 'none' ? 'none' : 'fix');
-  const ul = $('issues');
-  ul.innerHTML = '';
-  for (const i of result.issues) {
-    const li = document.createElement('li');
-    li.className = i.level;
-    li.textContent = (i.level === 'error' ? '🛑 ' : '⚠️ ') + i.msg;
-    ul.appendChild(li);
-  }
+  verdict.className = 'verdict ' + (result.plan === 'none' && !result.needsTrim ? 'none' : 'fix');
+  $('issues').replaceChildren(...result.issues.map((i) => el('li', { className: i.level, textContent: (i.level === 'error' ? '🛑 ' : '⚠️ ') + i.msg })));
 }
 
 // ---------- Schedule ----------
@@ -194,11 +250,9 @@ $('schedule').onclick = async () => {
   btn.disabled = true;
   setMsg(uploaded.result.plan === 'reencode' ? 'Re-encoding once at high quality… this can take a minute.' : 'Scheduling…');
   try {
-    const r = await api('/api/schedule', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: uploaded.name, at: new Date($('at').value).toISOString(), caption: $('caption').value }),
-    });
+    const r = await api('/api/schedule', json('POST', {
+      name: uploaded.name, at: new Date($('at').value).toISOString(), caption: $('caption').value, coverOffsetMs: coverMs,
+    }));
     setMsg('📅 Scheduled for ' + new Date(r.post.publishAt).toLocaleString());
     reset();
     loadQueue();
@@ -210,10 +264,13 @@ $('schedule').onclick = async () => {
 
 function reset() {
   uploaded = null;
-  $('preview').removeAttribute('src');
-  $('preview').style.display = 'none';
+  coverMs = null;
+  video.removeAttribute('src');
+  video.style.display = 'none';
   drop.style.display = 'grid';
-  drop.querySelector('div').innerHTML = '<b>Drop a Reel here</b>or click to choose<br /><small>MP4 or MOV</small>';
+  resetDrop();
+  $('coverRow').style.display = 'none';
+  $('coverLabel').textContent = 'Cover: Instagram picks';
   $('checkCard').classList.add('hidden');
   $('caption').value = '';
   $('count').textContent = '0';
@@ -223,46 +280,74 @@ function reset() {
 
 // ---------- Queue ----------
 async function loadQueue() {
+  if (editingId) return; // don't wipe an edit in progress
   const { posts } = await api('/api/queue');
-  const body = $('queue');
-  body.innerHTML = '';
   $('empty').classList.toggle('hidden', posts.length > 0);
-  for (const p of posts) {
-    const tr = document.createElement('tr');
-    const when = document.createElement('td');
-    when.textContent = new Date(p.publishAt).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-    const cap = document.createElement('td');
-    cap.textContent = p.caption ? (p.caption.length > 60 ? p.caption.slice(0, 60) + '…' : p.caption) : '(no caption)';
-    if (p.error) {
-      const e = document.createElement('div');
-      e.className = 'err-line';
-      e.textContent = p.error;
-      cap.appendChild(e);
-    }
-    const st = document.createElement('td');
-    const pill = document.createElement('span');
-    pill.className = 'status ' + p.status;
-    pill.textContent = STATUS_LABEL[p.status] || p.status;
-    st.appendChild(pill);
-    const act = document.createElement('td');
-    if (p.status !== 'published') {
-      const b = document.createElement('button');
-      b.className = 'ghost';
-      b.textContent = 'Remove';
-      b.onclick = async () => { await api('/api/queue/' + p.id, { method: 'DELETE' }); loadQueue(); };
-      act.appendChild(b);
-    }
-    tr.append(when, cap, st, act);
-    body.appendChild(tr);
+  $('queue').replaceChildren(...posts.map(row));
+}
+
+function row(p) {
+  const retrying = p.status !== 'failed' && p.attempts > 0 && p.error;
+  const when = el('td', { textContent: fmtWhen(p.publishAt) });
+
+  const cap = el('td', { textContent: p.caption ? (p.caption.length > 60 ? p.caption.slice(0, 60) + '…' : p.caption) : '(no caption)' });
+  if (p.coverOffsetMs != null) cap.append(el('div', { className: 'sub', textContent: `Cover at ${(p.coverOffsetMs / 1000).toFixed(1)}s` }));
+  if (p.error) cap.append(el('div', { className: 'sub' + (p.status === 'failed' ? ' err' : ''), textContent: p.error }));
+
+  const status = el('td', {}, el('span', {
+    className: 'status ' + (retrying ? 'retrying' : p.status),
+    textContent: retrying ? 'Retrying' : (STATUS[p.status] || p.status),
+  }));
+
+  const actions = el('td', { className: 'actions' });
+  const btn = (text, onclick, cls = 'ghost') => actions.append(el('button', { className: cls, textContent: text, onclick }));
+  if (p.status === 'published') {
+    if (p.permalink) actions.append(el('a', { href: p.permalink, target: '_blank', rel: 'noopener', textContent: 'View post ↗' }));
+  } else {
+    if (p.status === 'failed') btn('Retry', async () => { await api(`/api/queue/${p.id}/retry`, { method: 'POST' }); loadQueue(); });
+    btn('Edit', () => startEdit(p));
+    btn('Remove', async () => {
+      if (!confirm('Remove this post from the schedule?')) return;
+      await api('/api/queue/' + p.id, { method: 'DELETE' });
+      loadQueue();
+    }, 'ghost danger');
   }
+  const tr = el('tr', {}, when, cap, status, actions);
+  tr.dataset.id = p.id;
+  return tr;
+}
+
+function startEdit(p) {
+  editingId = p.id;
+  const caption = el('textarea', { value: p.caption || '', maxLength: 2200 });
+  const at = el('input', { type: 'datetime-local', value: toLocalInput(new Date(p.publishAt)) });
+  const note = el('div', { className: 'sub', textContent: p.status === 'queued' ? '' : 'Saving re-sends it to Instagram with the new details.' });
+  const err = el('div', { className: 'sub err' });
+  const save = el('button', { className: 'secondary', textContent: 'Save', onclick: async () => {
+    try {
+      await api('/api/queue/' + p.id, json('PATCH', { caption: caption.value, at: new Date(at.value).toISOString() }));
+      editingId = null;
+      loadQueue();
+    } catch (e) { err.textContent = e.message; }
+  } });
+  const cancel = el('button', { className: 'ghost', textContent: 'Cancel', onclick: () => { editingId = null; loadQueue(); } });
+  const cell = el('td', { colSpan: 4 },
+    el('div', { className: 'edit-grid' }, caption, el('div', {}, at, el('div', { className: 'row-btns' }, save, cancel))),
+    note, err);
+  const current = [...$('queue').children].find((r) => r.dataset.id === p.id);
+  const editRow = el('tr', { className: 'editing' }, cell);
+  if (current) current.replaceWith(editRow);
+  caption.focus();
 }
 
 // Block picking a time in the past.
-$('at').min = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+$('at').min = toLocalInput(new Date());
 
+resetDrop();
 loadStatus();
 loadQueue();
 setInterval(loadQueue, 10_000);
+setInterval(loadStatus, 60_000);
 </script>
 </body>
 </html>

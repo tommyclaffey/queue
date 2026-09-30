@@ -3,11 +3,15 @@
   "version": "0.1.0",
   "description": "Schedule Instagram Reels without wrecking video quality.",
   "type": "module",
-  "bin": { "uncut": "bin/uncut.js" },
+  "bin": {
+    "uncut": "bin/uncut.js"
+  },
   "scripts": {
     "start": "node bin/uncut.js serve",
-    "check": "node bin/uncut.js check",
-    "worker": "node bin/uncut.js run"
+    "test": "node --test test/*.test.js",
+    "doctor": "node bin/uncut.js doctor"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  }
 }
