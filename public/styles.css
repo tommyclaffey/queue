@@ -523,6 +523,18 @@ pre.method { margin: 0; white-space: pre-wrap; font: 12px/18px var(--mono); colo
 .ig-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ig-item.on { box-shadow: 0 0 0 2px var(--text-primary); }
 
+.time-chip { padding: 0; overflow: hidden; }
+.time-chip button { border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.time-chip .tc-main { padding: 2px 4px 2px 10px; }
+.time-chip .tc-main:only-child { padding-right: 10px; }
+.time-chip .tc-x { padding: 2px 8px 2px 4px; opacity: .55; }
+.time-chip .tc-x:hover { opacity: 1; }
+.add-chip { cursor: pointer; border-style: dashed; color: var(--text-secondary); }
+
+.table-scroll { overflow-x: auto; }
+.queue-table td:nth-child(5), .queue-table td:last-child { white-space: nowrap; }
+@media (max-width: 1240px) { .queue-table .post-cell .cap { max-width: 220px; } .queue-table td, .queue-table th { padding-left: 9px; padding-right: 9px; } }
+
 /* ---------- Modals & toasts ---------- */
 .modal-root:empty { display: none; }
 .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: grid; place-items: center; z-index: 50; animation: fade .15s ease-out; }

@@ -191,7 +191,8 @@ try {
     }
 
     case 'run': {
-      const { ig, queue, files, tokens, log, stageWindowMin, lateLimitMin, notify } = cfg;
+      const { ig, queue, files, tokens, log, stageWindowMin, lateLimitMin } = cfg;
+      const notify = cfg.notifyOn ? cfg.notify : () => {};
       acquireLock(join(ROOT, 'data', 'scheduler.lock'));
       keepAwake();
       console.log(ig.dryRun ? '🧪 DRY RUN — no token set, nothing will actually post.' : `🟢 LIVE — ${ig.login} login, ${ig.uploadMode} upload`);

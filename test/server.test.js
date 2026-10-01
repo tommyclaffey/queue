@@ -18,7 +18,7 @@ before(async () => {
   dir = tmp();
   queue = new Queue(join(dir, 'queue.json'));
   const ig = new InstagramClient({ login: 'facebook', userId: meta.userId, token: GOOD_TOKEN, graphHost: meta.host, ruploadHost: meta.host, retryDelayMs: 5 });
-  app = startServer({ root: ROOT, mediaDir: join(dir, 'media'), queue, ig, port: 0, tickMs: 150, log: () => {} });
+  app = startServer({ root: ROOT, mediaDir: join(dir, 'media'), dataDir: join(dir, 'data'), queue, ig, port: 0, tickMs: 150, log: () => {} });
   await app.ready;
   base = `http://127.0.0.1:${app.port()}`;
 });
@@ -115,6 +115,14 @@ test('cannot read files outside media/', async () => {
   assert.equal(s.status, 400);
 });
 
+test('🔒 "." and ".." are never treated as files', async () => {
+  for (const p of ['/media/..%2f', '/media/.%2f', '/quality-media/..%2f', '/api/media/..%2f', '/api/media/.%2f']) {
+    const r = await fetch(base + p, { headers: { 'X-Queue': '1' } }).catch(() => null);
+    assert.ok(r, `${p} must answer, not reset the connection`);
+    assert.equal(r.status, 404, p);
+  }
+});
+
 test('serves the app page', async () => {
   const res = await fetch(base + '/');
   assert.equal(res.status, 200);
@@ -195,6 +203,7 @@ test('the real app is not the demo: no fake accounts, no demo posts, honest qual
   assert.equal(m.status, 400);
   assert.match(m.body.error, /not been published/);
   assert.deepEqual(s.body.post.platforms, ['instagram'], 'real posts only ever go to Instagram');
+  assert.equal(s.body.post.destinations, undefined, 'real posts carry no demo destination list (status comes from the post itself)');
 });
 
 test('benchmark: create, add a result from an uploaded file, average, remove', async () => {
@@ -225,6 +234,24 @@ test('benchmark: create, add a result from an uploaded file, average, remove', a
   assert.equal((await api(`/api/benchmarks/${b.id}`, { method: 'DELETE' })).status, 200);
   assert.ok(!(await api('/api/benchmarks')).body.benchmarks.some((x) => x.id === b.id));
   assert.equal((await api('/api/benchmarks/bm-missing/entries', json('POST', {}))).status, 404);
+});
+
+test('settings change in the app, save to disk and apply without a restart', async () => {
+  const before = (await api('/api/config')).body;
+  assert.ok(Array.isArray(before.postingTimes));
+  const bad = await api('/api/config', json('PATCH', { stageWindowMin: 2000 }));
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.error, /23 hours/);
+  const r = await api('/api/config', json('PATCH', { lateLimitMin: 30, postingTimes: ['07:30', '19:00'], defaultTime: '19:00', notify: false }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.lateLimitMin, 30);
+  assert.deepEqual(r.body.postingTimes, ['07:30', '19:00']);
+  assert.equal(r.body.notify, false);
+  const after = (await api('/api/config')).body;
+  assert.equal(after.defaultTime, '19:00');
+  assert.ok(JSON.parse(readFileSync(join(dir, 'data', 'settings.json'), 'utf8')).postingTimes.includes('07:30'));
+  // Put it back so later tests see the defaults they expect.
+  await api('/api/config', json('PATCH', { lateLimitMin: before.lateLimitMin, stageWindowMin: before.stageWindowMin, postingTimes: before.postingTimes, defaultTime: before.defaultTime, notify: true }));
 });
 
 test('config reports the scheduler settings', async () => {

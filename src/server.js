@@ -15,6 +15,7 @@ import { mediaReport, clearMedia } from './storage.js';
 import { readdirSync, statSync } from 'node:fs';
 import { isLoaded as autostartOn } from './autostart.js';
 import { compare, download } from './quality.js';
+import { mergeSettings, saveSettings } from './settings.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFileSync, writeFileSync, copyFileSync } from 'node:fs';
@@ -22,7 +23,11 @@ import { readFileSync, writeFileSync, copyFileSync } from 'node:fs';
 const TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/mp4' };
 const PUBLIC_FILES = new Set(['index.html', 'styles.css', 'app.js', 'pages.js']);
 
-export function startServer({ root, queue, ig, files = null, tokens = null, port = 4400, stageWindowMin = 120, lateLimitMin = 120, notify = () => {}, log = console.log, tickMs = 30_000, mediaDir = join(root, 'media'), dataDir = join(root, 'data'), demo = null }) {
+export function startServer({ root, queue, ig, files = null, tokens = null, port = 4400, stageWindowMin = 120, lateLimitMin = 120, notify = () => {}, log = console.log, tickMs = 30_000, mediaDir = join(root, 'media'), dataDir = join(root, 'data'), demo = null, notifyOn = true }) {
+  // Live settings. Explicit options (from loadConfig or tests) win at start; changes made in the
+  // app are saved to data/settings.json and applied immediately.
+  let settings = { ...mergeSettings(dataDir), stageWindowMin, lateLimitMin, notify: notifyOn };
+  const notifyGated = (...a) => { if (settings.notify) notify(...a); };
   mkdirSync(mediaDir, { recursive: true });
   let account = null;
   let accountError = null;
@@ -37,11 +42,14 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
     return JSON.parse(s || '{}');
   };
   // Only allow files that live inside media/ — never arbitrary paths from the browser.
-  const safeMedia = (name) => {
+  // A plain file name inside `dir`, or null. Rejects "", ".", ".." and anything that isn't a file.
+  const fileIn = (dir, name) => {
     const clean = basename(String(name || ''));
-    const p = join(mediaDir, clean);
-    return clean && existsSync(p) ? p : null;
+    if (!clean || clean === '.' || clean === '..') return null;
+    const p = join(dir, clean);
+    try { return statSync(p).isFile() ? p : null; } catch { return null; }
   };
+  const safeMedia = (name) => fileIn(mediaDir, name);
   // ffprobe is ~50 ms a file, so cache by path + size + mtime. The Library and Queue lists
   // ask for every file on every refresh.
   const probeCache = new Map();
@@ -75,7 +83,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
   const qualityFile = join(dataDir, 'quality.json');
   const readQuality = () => { try { return JSON.parse(readFileSync(qualityFile, 'utf8')); } catch { return []; } };
   const saveQuality = (list) => { mkdirSync(dataDir, { recursive: true }); writeFileSync(qualityFile, JSON.stringify(list, null, 1)); };
-  const safeIn = (dir, name) => { const clean = basename(String(name || '')); const p = join(dir, clean); return clean && existsSync(p) ? p : null; };
+  const safeIn = fileIn;
   const originalOf = (post) => safeMedia(post.source) || (post.file && existsSync(post.file) ? post.file : null);
 
   // Benchmarks: the same clips posted through different routes (Queue, the Instagram app, other
@@ -85,6 +93,8 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
   const saveBench = (list) => { mkdirSync(dataDir, { recursive: true }); writeFileSync(benchFile, JSON.stringify(list, null, 1)); };
   async function benchEntry(benchmarkId, clip, label, servedPath, extra = {}) {
     const original = safeMedia(clip);
+    // "instagram app" and "Instagram app" are the same route — reuse the spelling already in use.
+    label = readQuality().find((q) => q.benchmarkId === benchmarkId && q.label?.toLowerCase() === label.toLowerCase())?.label || label;
     const result = await compare(original, servedPath);
     const entry = { id: `b-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, benchmarkId, route: 'bench', label, platform: 'instagram', original: basename(original), served: basename(servedPath), at: new Date().toISOString(), result, ...extra };
     saveQuality([...readQuality(), entry]);
@@ -94,7 +104,6 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
   async function measure(post) {
     const original = originalOf(post);
     if (!original) throw new Error('The original video is no longer in the Library.');
-    const list = readQuality();
     const id = `${post.id}-instagram`;
     let served = safeIn(qualityDir, `${id}.mp4`);
     if (demo && !served) {
@@ -115,7 +124,8 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
     }
     const result = await compare(original, served);
     const entry = { id, postId: post.id, platform: 'instagram', route: 'queue', original: basename(original), served: basename(served), at: new Date().toISOString(), result };
-    saveQuality([...list.filter((q) => q.id !== id), entry]);
+    // Re-read: measuring takes a minute and other results may have been saved meanwhile.
+    saveQuality([...readQuality().filter((q) => q.id !== id), entry]);
     queue.update(post, {}, `quality measured: VMAF ${result.vmaf}`);
     return entry;
   }
@@ -318,7 +328,15 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       // Settings (read-only for now — values come from .env).
       if (req.method === 'GET' && resource === 'config') {
         let autostart = false; try { autostart = autostartOn(); } catch {}
-        return send(res, 200, { stageWindowMin, lateLimitMin, notify: process.env.NOTIFY !== '0', login: ig.login, uploadMode: ig.uploadMode, autostart, graphVersion: ig.version });
+        return send(res, 200, { ...settings, login: ig.login, uploadMode: ig.uploadMode, autostart, graphVersion: ig.version });
+      }
+      if (req.method === 'PATCH' && resource === 'config') {
+        const saved = saveSettings(dataDir, await readJson(req));
+        settings = { ...settings, ...saved };
+        if (!settings.postingTimes.includes(settings.defaultTime)) settings.defaultTime = settings.postingTimes[0];
+        stageWindowMin = settings.stageWindowMin; lateLimitMin = settings.lateLimitMin;
+        let autostart = false; try { autostart = autostartOn(); } catch {}
+        return send(res, 200, { ...settings, login: ig.login, uploadMode: ig.uploadMode, autostart, graphVersion: ig.version });
       }
 
       if (resource === 'storage') {
@@ -356,7 +374,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
 
         const FORMAT = { instagram: 'Reel', youtubeshorts: 'Short', tiktok: 'Video', facebook: 'Reel', linkedin: 'Video' };
         const dests = demo && Array.isArray(platforms) && platforms.length ? platforms.filter((p) => FORMAT[p]) : ['instagram'];
-        const post = queue.add({ file: ready, caption, publishAt: when, coverOffsetMs: cover, fix: result.plan, source: basename(file), platforms: dests, destinations: dests.map((p) => ({ platform: p, format: FORMAT[p], status: 'queued' })) });
+        const post = queue.add({ file: ready, caption, publishAt: when, coverOffsetMs: cover, fix: result.plan, source: basename(file), platforms: dests, destinations: demo ? dests.map((p) => ({ platform: p, format: FORMAT[p], status: 'queued' })) : null });
         return send(res, 200, { post: { ...post, shareToken: undefined }, fixed: result.plan });
       }
 
@@ -417,7 +435,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
     nextCheckAt = new Date(Date.now() + tickMs).toISOString();
     try {
       if (tokens) await tokens.maybeRefresh(ig, { log });
-      await tick(queue, ig, { files, stageWindowMin, lateLimitMin, notify, log });
+      await tick(queue, ig, { files, stageWindowMin, lateLimitMin, notify: notifyGated, log });
     } catch (err) {
       log(`scheduler error: ${err.message}`);
     }

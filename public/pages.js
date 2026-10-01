@@ -38,7 +38,7 @@ VIEWS.post = async (c, id) => {
   const actions = [];
   if (p.source) actions.push(btn('Duplicate', 'ghost', () => openInComposer(p.source)));
   if (s === 'posted') {
-    actions.push(btn(main ? 'Measure again' : 'Measure quality', 'secondary', (e) => measurePost(p, e.currentTarget)));
+    if (!p.images) actions.push(btn(main ? 'Measure again' : 'Measure quality', 'secondary', (e) => measurePost(p, e.currentTarget)));
     if (p.permalink) actions.push(el('a', { class: 'btn primary', href: p.permalink, target: '_blank', rel: 'noopener' }, 'View on Instagram', icon('external')));
   } else {
     if (s === 'missed') actions.push(btn('Post now', 'primary', () => missedDecision(p)));
@@ -54,7 +54,7 @@ VIEWS.post = async (c, id) => {
 
   // ---- middle: destinations + what happened
   const dests = el('div', { class: 'card flush' }, el('div', { class: 'row', style: 'padding:16px 18px 6px' }, el('h2', { class: 'h3' }, 'Destinations')));
-  for (const d of (p.destinations?.length ? p.destinations : [{ platform: 'instagram', format: 'Reel', status: s === 'posted' ? 'posted' : p.status }])) {
+  for (const d of (isDemo() && p.destinations?.length ? p.destinations : [{ platform: 'instagram', format: 'Reel', status: s === 'posted' ? 'posted' : p.status }])) {
     const [txt, cls] = d.status === s ? [`${GLYPH[s]} ${STATUS[s]}`, s] : DEST[d.status] || DEST.queued;
     const v = d.vmaf ?? vmafOf(p, d.platform);
     const when = d.status === 'posted' || d.status === 'published' ? `posted ${fmtTime(new Date(p.publishedAt || p.publishAt))}` : d.status === 'drafts' ? 'sent to drafts' : fmtWhen(p.publishAt);
@@ -82,7 +82,7 @@ VIEWS.post = async (c, id) => {
     right.append(el('div', { class: 'card stack', style: 'gap:8px' }, el('h2', { class: 'h3' }, `Original → what ${PNAME[main.platform]} serves`),
       ...[['Resolution', r.original.resolution, r.posted.resolution], ['Bitrate', r.original.mbps != null ? `${r.original.mbps} Mbps` : '—', r.posted.mbps != null ? `${r.posted.mbps} Mbps` : '—'], ['File size', `${r.original.mb} MB`, `${r.posted.mb} MB`]].map(([k, a, b]) => el('div', { class: 'kv' }, el('span', { class: 'k small' }, k), el('span', { class: 'mono small' }, `${a} → ${b}`))),
       el('div', { style: 'margin-top:6px' }, btn('Open side-by-side in Quality Lab', 'secondary', () => (location.hash = `#/quality/${main.id}`)))));
-  } else if (s === 'posted') {
+  } else if (s === 'posted' && !p.images) {
     right.append(el('div', { class: 'card stack', style: 'gap:10px' }, el('h2', { class: 'h3' }, 'Quality report'), el('div', { class: 'small muted' }, 'Not measured yet. Queue downloads what Instagram serves and scores it against your original with VMAF — the same 0–100 measure Netflix uses.'), el('div', {}, btn('Measure quality', 'primary', (e) => measurePost(p, e.currentTarget)))));
   } else if (p.meta) {
     const m = p.meta;
@@ -160,7 +160,7 @@ VIEWS.quality = async (c, compId) => {
   const series = r.series || [];
   const dur = series.length ? series[series.length - 1].t + (series[1] ? series[1].t - series[0].t : 0) : 1;
   const lo = Math.min(...series.map((x) => x.vmaf), 90) - 4;
-  const chart = el('div', { class: 'lab-chart' }, ...series.map((x) => el('i', { style: `height:${Math.max(8, ((x.vmaf - lo) / (100 - lo)) * 100)}%`, class: Math.abs(x.t - (r.worstAt ?? -1)) < (series[1]?.t - series[0]?.t || 0.5) ? 'worst' : '', title: `${fmtClock(x.t)} · VMAF ${x.vmaf}` })));
+  const chart = el('div', { class: 'lab-chart' }, ...series.map((x) => el('i', { style: `height:${Math.max(8, ((x.vmaf - lo) / (100 - lo)) * 100)}%`, class: r.worstAt != null && x.t <= r.worstAt && r.worstAt < x.t + (series[1] ? series[1].t - series[0].t : dur) ? 'worst' : '', title: `${fmtClock(x.t)} · VMAF ${x.vmaf}` })));
   const head2 = el('div', { class: 'lab-play' });
   chart.append(head2);
   const seek = (t) => { A.currentTime = t; B.currentTime = t; };
@@ -187,7 +187,7 @@ VIEWS.quality = async (c, compId) => {
     const word = (v) => (v >= 93 ? 'identical' : v >= 85 ? 'good' : v >= 70 ? 'noticeable' : 'heavy loss');
     const row = (k, v, strong) => el('div', { class: 'stack', style: 'gap:4px' }, el('div', { class: 'row' }, el('span', { class: 'small', style: 'flex:1' }, k), el('b', { class: 'mono small' }, String(v))), el('div', { class: 'bar' + (strong ? '' : ' soft') }, el('span', { style: `width:${v}%` })));
     side.append(el('div', { class: 'card stack', style: 'gap:10px' }, el('h2', { class: 'h3' }, 'Same clip, two routes'), row(`${PNAME[sameApp.platform]} app`, a), row('Through Queue', b, true),
-      el('div', { class: 'inset small', style: 'font-weight:500' }, word(a) === word(b) ? `${b - a >= 0 ? '+' : ''}${(b - a).toFixed(1)} VMAF — noticeably closer to your original` : `${b - a >= 0 ? '+' : ''}${(b - a).toFixed(1)} VMAF — from "${word(a)}" to "${word(b)}"`),
+      el('div', { class: 'inset small', style: 'font-weight:500' }, word(a) === word(b) ? (b - a >= 0 ? `+${(b - a).toFixed(1)} VMAF — closer to your original` : `${(b - a).toFixed(1)} VMAF — the app route kept more this time`) : `${b - a >= 0 ? '+' : ''}${(b - a).toFixed(1)} VMAF — from "${word(a)}" to "${word(b)}"`),
       el('div', { class: 'small faint' }, 'The same clip posted both ways, each compared with the original.')));
   }
   const past = el('div', { class: 'card stack', style: 'gap:2px' }, el('h2', { class: 'h3', style: 'margin-bottom:6px' }, 'Past comparisons'));
@@ -197,7 +197,7 @@ VIEWS.quality = async (c, compId) => {
   c.append(el('div', { class: 'lab' }, el('div', { class: 'stack', style: 'gap:16px;min-width:0' }, pickers, viewer), side));
 };
 function qualityEmpty(c) {
-  const posted = S.posts.filter((p) => statusOf(p) === 'posted');
+  const posted = S.posts.filter((p) => statusOf(p) === 'posted' && !p.images);
   c.append(el('div', { class: 'card stack', style: 'gap:10px' }, el('h2', { class: 'h3' }, 'How it works'),
     el('div', { class: 'muted' }, 'After a post goes live, Queue downloads the version Instagram serves and scores it against your original with VMAF — the same 0–100 measure Netflix uses. 93+ looks identical to most people.'),
     el('div', { class: 'small faint' }, 'Results show here side by side, frame by frame, with the worst moment marked.')));
@@ -207,7 +207,7 @@ function qualityEmpty(c) {
   c.append(list);
 }
 function newComparison() {
-  const posted = S.posts.filter((p) => statusOf(p) === 'posted');
+  const posted = S.posts.filter((p) => statusOf(p) === 'posted' && !p.images);
   modal((m, close) => {
     m.append(el('h2', { class: 'h2' }, 'New comparison'), el('div', { class: 'muted small' }, "Pick a post. Queue downloads what Instagram serves and measures it against your original. Takes about a minute."));
     const list = el('div', { class: 'stack', style: 'gap:6px;max-height:340px;overflow:auto' });
@@ -274,7 +274,7 @@ VIEWS.setup = async (c) => {
     [connected ? 'ok' : 'off', connected ? 'Publishing allowed' : 'Publishing', connected ? (demo ? '3 of 50 posts used in the last 24h' : 'Instagram allows up to 50 posts a day') : 'Checked once you connect'],
     [st.ffmpeg ? 'ok' : 'no', st.ffmpeg ? 'Video tools ready' : 'Video tools missing', st.ffmpeg ? 'Quality checker + Apple HDR converter found' : 'Run: brew install ffmpeg'],
     [st.cloudflared || st.uploadMode !== 'url' ? 'ok' : 'no', st.uploadMode === 'url' ? 'Temporary file link works' : 'Direct upload', st.uploadMode === 'url' ? (st.cloudflared ? 'Opens for each upload and closes right after' : 'Run: brew install cloudflared') : 'Files go straight to Meta'],
-    [cfg.notify ? 'ok' : 'warn', cfg.notify ? 'Notifications are on' : 'Notifications are off', cfg.notify ? 'Posted, failed and missed alerts on this Mac' : 'Set NOTIFY=1 in .env to get alerts'],
+    [cfg.notify ? 'ok' : 'warn', cfg.notify ? 'Notifications are on' : 'Notifications are off', cfg.notify ? 'Posted, failed and missed alerts on this Mac' : 'Turn them on in Settings → Notifications', cfg.notify ? null : btn('Turn on', 'secondary small', async () => { S.config = await api('/api/config', json('PATCH', { notify: true })); render(); })],
     [cfg.autostart ? 'ok' : 'off', 'Start at login', cfg.autostart ? 'On — Queue runs in the background' : 'Off — Queue only runs while this window is open', el('code', { class: 'cmd' }, `node bin/queue.js autostart ${cfg.autostart ? 'off' : 'on'}`)],
     [connected ? 'ok' : 'off', 'Login key renews itself', connected ? (st.tokenDaysLeft != null ? `Good for ${st.tokenDaysLeft} more days · renewed weekly` : 'Renewed automatically') : 'Checked once you connect'],
   ];
@@ -311,7 +311,7 @@ const dateTimeCard = (note) => {
   if (!C.date) { const d = new Date(Date.now() + 3600e3); d.setMinutes(d.getMinutes() < 30 ? 30 : 60, 0, 0); C.date = toDateInput(d); C.time = toTimeInput(d); }
   const date = el('input', { class: 'input', type: 'date', value: C.date, min: toDateInput(new Date()), on: { change: (e) => (C.date = e.target.value) } });
   const time = el('input', { class: 'input', type: 'time', value: C.time, on: { change: (e) => { C.time = e.target.value; render(); } } });
-  const quick = el('div', { class: 'quick' }, el('span', { class: 'small muted' }, 'Quick:'), ...USUAL_TIMES.map(([v, l]) => el('button', { type: 'button', class: C.time === v ? 'on' : '', on: { click: () => { C.time = v; render(); } } }, l)));
+  const quick = el('div', { class: 'quick' }, el('span', { class: 'small muted' }, 'Quick:'), ...usualTimes().map(([v, l]) => el('button', { type: 'button', class: C.time === v ? 'on' : '', on: { click: () => { C.time = v; render(); } } }, l)));
   return el('div', { class: 'card stack', style: 'gap:10px' }, el('h2', { class: 'h3' }, 'When'), el('div', { class: 'row', style: 'gap:12px' }, el('label', { class: 'field', style: 'flex:1' }, el('span', {}, 'Date'), date), el('label', { class: 'field', style: 'flex:1' }, el('span', {}, 'Time'), time)), quick, el('div', { class: 'small faint' }, note || tz));
 };
 const toggleBtn = (on, onClick, disabled) => el('button', { class: 'toggle' + (on ? ' on' : ''), disabled: !!disabled, 'aria-pressed': String(on), on: onClick ? { click: onClick } : null });
@@ -518,7 +518,7 @@ function stripTiles(list, labelFor, onAdd) {
     const tile = el('div', { class: 'tile', draggable: 'true' }, el('img', { src: imgUrl(n), alt: '' }), el('span', { class: 'num' }, labelFor(i)), el('button', { class: 'x', type: 'button', 'aria-label': 'Remove', on: { click: () => { list.splice(i, 1); render(); } } }, '×'));
     tile.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/x-queue-tile', String(i)));
     tile.addEventListener('dragover', (e) => e.preventDefault());
-    tile.addEventListener('drop', (e) => { e.preventDefault(); const from = Number(e.dataTransfer.getData('text/x-queue-tile')); if (Number.isNaN(from) || from === i) return; const [x] = list.splice(from, 1); list.splice(i, 0, x); render(); });
+    tile.addEventListener('drop', (e) => { e.preventDefault(); const raw = e.dataTransfer.getData('text/x-queue-tile'); if (raw === '') return; const from = Number(raw); if (Number.isNaN(from) || from === i) return; const [x] = list.splice(from, 1); list.splice(i, 0, x); render(); });
     strip.append(tile);
   });
   strip.append(el('button', { class: 'tile add', type: 'button', on: { click: onAdd } }, '+'));
@@ -614,6 +614,8 @@ let benchSel = null;
 // Averages per route, over only the clips that EVERY route has measured — so no route
 // looks better just because it skipped a hard clip.
 function benchStats(entries) {
+  // Group route names case-insensitively, keeping the first spelling seen.
+  const canon = new Map(); entries = entries.map((e) => { const k = e.label.toLowerCase(); if (!canon.has(k)) canon.set(k, e.label); return { ...e, label: canon.get(k) }; });
   const clips = [...new Set(entries.map((e) => e.original))];
   const routes = [...new Set(entries.map((e) => e.label))];
   const cell = (r, c) => entries.filter((e) => e.label === r && e.original === c).sort((a, b) => b.at.localeCompare(a.at))[0] || null;
@@ -651,7 +653,7 @@ function benchMethod(b, st, entries) {
     '', 'Clips:', ...st.clips.map((c) => { const m = metaOf(c); return `• ${shortName(c)} — ${m ? `${m.resolution}, ${m.mbps} Mbps, ${m.mb} MB` : ''}`; }),
     '', 'Routes:', ...st.routes.map((r) => `• ${r}`),
     '', `Averages use only clips measured on every route (${st.complete.length} of ${st.clips.length}).`,
-    `Measured ${new Date(Math.min(...entries.map((e) => +new Date(e.at)))).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} – ${new Date(Math.max(...entries.map((e) => +new Date(e.at)))).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}.`,
+    entries.length ? `Measured ${new Date(Math.min(...entries.map((e) => +new Date(e.at)))).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} – ${new Date(Math.max(...entries.map((e) => +new Date(e.at)))).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}.` : 'No results yet.',
     b.note ? `\nNote: ${b.note}` : '',
   ].join('\n');
 }

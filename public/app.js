@@ -121,8 +121,10 @@ function resLabel(m) {
   return m.hdr ? `${name} HDR` : name;
 }
 const FIX_TEXT = { none: 'no fixes needed', remux: 'lossless rewrap', 'audio-only': 'audio fix only', reencode: 'one clean encode', hdr: 'HDR → SDR + encode' };
-const USUAL_TIMES = [['12:00', '12:00 PM'], ['18:30', '6:30 PM'], ['21:00', '9:00 PM']];
-const USUAL_DEFAULT = '18:30';
+// Your usual posting times come from Settings (S.config); these are the fallbacks before it loads.
+const fmtHM = (v) => fmtTime(new Date(`2000-01-01T${v}`));
+const usualTimes = () => (S.config?.postingTimes || ['12:00', '18:30', '21:00']).map((v) => [v, fmtHM(v)]);
+const usualDefault = () => S.config?.defaultTime || '18:30';
 const shortName = (n) => n.replace(/^\d+-/, '');
 
 // A small popover menu anchored to a button. items: [label, onClick, { danger }]
@@ -398,6 +400,7 @@ function postMeta(p) {
 function qualityCell(p) {
   const s = statusOf(p);
   if (needsYou(p)) return el('span', { class: 'faint' }, '—');
+  if (s === 'posted' && p.images) return el('span', { class: 'faint' }, '—');
   if (s === 'posted') { const v = vmafOf(p); return v != null ? el('span', { class: 'small mono' }, `VMAF ${v}`) : el('a', { class: 'link small', href: `#/post/${p.id}` }, 'Measure →'); }
   if (p.fix && p.fix !== 'none') return el('span', { class: 'small muted', title: FIX_TEXT[p.fix] }, 'Fix applied');
   return el('span', { class: 'small muted' }, 'Ready ✓');
@@ -446,9 +449,11 @@ VIEWS.queue = (c) => {
         el('td', {}, qualityCell(p)),
         el('td', {}, el('div', { class: 'row', style: 'justify-content:flex-end;gap:4px' }, primary, more))));
     }
+    // Only what's on screen can be selected: a search or tab change drops hidden posts from the selection.
+    for (const id of [...queueSel]) if (!rows.some((p) => p.id === id)) queueSel.delete(id);
     const sel = S.posts.filter((p) => queueSel.has(p.id));
     const bulk = sel.length ? el('div', { class: 'bulkbar' }, el('b', {}, `${sel.length} selected`), btn('Move to day…', 'ghost small', () => bulkMove(sel)), btn('Shift by…', 'ghost small', () => bulkShift(sel)), btn('Remove from schedule', 'ghost small danger', () => bulkRemove(sel)), el('span', { style: 'flex:1' }), btn('Clear', 'ghost small', () => { queueSel.clear(); draw(); })) : null;
-    body.replaceChildren(...[bulk, el('div', { class: 'card flush' }, el('table', { class: 'table' }, el('thead', {}, el('tr', {}, el('th', { class: 'cb' }, all), el('th', {}, 'Post'), el('th', {}, 'Scheduled for'), el('th', {}, 'Status'), el('th', {}, 'Quality'), el('th', {}))), tbody))].filter(Boolean));
+    body.replaceChildren(...[bulk, el('div', { class: 'card flush' }, el('div', { class: 'table-scroll' }, el('table', { class: 'table queue-table' }, el('thead', {}, el('tr', {}, el('th', { class: 'cb' }, all), el('th', {}, 'Post'), el('th', {}, 'Scheduled for'), el('th', {}, 'Status'), el('th', {}, 'Quality'), el('th', {}))), tbody)))].filter(Boolean));
   }
   draw();
 };
@@ -485,7 +490,9 @@ function bulkShift(posts) {
       el('div', { class: 'foot' }, btn('Cancel', 'ghost', close), btn('Shift', 'primary', async () => {
         const ms = Number(n.value) * Number(unit.value) * Number(dir.value);
         if (!ms) { err.textContent = 'Enter how far to shift.'; return; }
-        const times = posts.map((p) => new Date(new Date(p.publishAt).getTime() + ms));
+        // Days and weeks move by calendar days, so 6:30 PM stays 6:30 PM across a clock change.
+        const unitMs = Number(unit.value); const k = Number(n.value) * Number(dir.value);
+        const times = posts.map((p) => { const d = new Date(p.publishAt); if (unitMs >= DAY) d.setDate(d.getDate() + k * (unitMs / DAY)); else d.setTime(d.getTime() + ms); return d; });
         if (times.some((t) => t < Date.now())) { err.textContent = 'At least one post would land in the past.'; return; }
         close();
         await bulkApply(posts, (p) => api(`/api/queue/${p.id}`, json('PATCH', { at: times[posts.indexOf(p)].toISOString() })), (k) => `Shifted ${k} post${k === 1 ? '' : 's'}`);
@@ -553,7 +560,7 @@ function missedDecision(p, initial = 'now') {
     opts.append(opt('now', 'Post now', 'Goes live in under a minute.'), opt('later', 'Pick a new time', null, el('div', { class: 'row', style: 'gap:10px;margin-top:8px' }, date, time)), opt('remove', 'Remove from schedule', 'The video stays in your Library.'));
     m.append(el('div', { class: 'row', style: 'gap:14px' }, thumb(p, 'thumb'), el('div', {}, pill('missed'), el('h2', { class: 'h2' }, 'This post missed its time'), el('div', { class: 'small muted' }, `Set for ${fmtWhen(p.publishAt)}`))),
       el('div', { class: 'inset small muted' }, `Your Mac was off or asleep at that time, so nothing was posted. Posts more than ${lateLimit()} late always wait for you.`),
-      opts, err, el('div', { class: 'foot' }, el('span', { class: 'small faint', style: 'flex:1' }, `Change the ${lateLimit()} rule in .env (LATE_LIMIT_MIN)`), btn('Cancel', 'ghost', close), go));
+      opts, err, el('div', { class: 'foot' }, el('a', { class: 'small faint link', style: 'flex:1', href: '#/settings', on: { click: close } }, `Change the ${lateLimit()} rule in Settings`), btn('Cancel', 'ghost', close), go));
   });
 }
 
@@ -572,10 +579,11 @@ function dropTarget(node, day) {
     e.preventDefault(); node.classList.remove('drop');
     const media = e.dataTransfer.getData('text/x-queue-media');
     const postId = e.dataTransfer.getData('text/x-queue-post');
-    if (media) return openInComposer(media, toDateInput(day), USUAL_DEFAULT);
+    if (media) return openInComposer(media, toDateInput(day), usualDefault());
     const p = S.posts.find((x) => x.id === postId);
     if (!p || !selectable(p)) return;
     const when = fromInputs(toDateInput(day), toTimeInput(new Date(p.publishAt)));
+    if (+when === +new Date(p.publishAt)) return; // dropped back on its own day: nothing to change
     if (when < Date.now()) return toast('That time has already passed on that day', true);
     try { await api(`/api/queue/${p.id}`, json('PATCH', { at: when.toISOString() })); toast(`Moved to ${fmtWhen(when.toISOString())}`); await load(); render(); } catch (err) { toast(err.message, true); }
   });
@@ -671,7 +679,7 @@ VIEWS.calendar = async (c) => {
       unsched.append(row);
     }
     if (free.length > 8) unsched.append(el('a', { class: 'link small', href: '#/library' }, `+${free.length - 8} more in Library →`));
-    if (free.length) unsched.append(el('div', { class: 'small faint' }, `Drag a video onto a day. It lands at ${USUAL_TIMES.find(([v]) => v === USUAL_DEFAULT)[1]}; change it before you schedule.`));
+    if (free.length) unsched.append(el('div', { class: 'small faint' }, `Drag a video onto a day. It lands at ${fmtHM(usualDefault())}; change it before you schedule.`));
   } catch (e) { unsched.append(el('div', { class: 'small muted' }, e.message)); }
 };
 
@@ -811,8 +819,35 @@ function manageInstagram() {
 
 // ================================================================ SETTINGS
 let settingsSpy = null;
+async function saveSetting(patch) {
+  try { S.config = await api('/api/config', json('PATCH', patch)); toast('Saved'); }
+  catch (e) { toast(e.message, true); }
+  render();
+}
+function selectSetting(key, value, options) {
+  const opts = options.some(([v]) => v === value) ? options : [...options, [value, `${mins(value)} (from .env)`]].sort((a, b) => a[0] - b[0]);
+  return el('select', { class: 'input select-sm', 'aria-label': key, on: { change: (e) => saveSetting({ [key]: Number(e.target.value) }) } }, ...opts.map(([v, l]) => el('option', { value: v, selected: v === value }, l)));
+}
+function postingTimesEditor(cfg) {
+  const times = cfg.postingTimes || ['12:00', '18:30', '21:00'];
+  const wrap = el('div', { class: 'quick', style: 'justify-content:flex-end' });
+  for (const t of times) {
+    const isDef = t === cfg.defaultTime;
+    wrap.append(el('span', { class: 'chip time-chip' + (isDef ? ' strong' : '') },
+      el('button', { type: 'button', class: 'tc-main', title: isDef ? 'Default time' : 'Make this the default', on: { click: () => !isDef && saveSetting({ defaultTime: t }) } }, `${isDef ? '★ ' : ''}${fmtHM(t)}`),
+      times.length > 1 ? el('button', { type: 'button', class: 'tc-x', 'aria-label': `Remove ${fmtHM(t)}`, on: { click: () => saveSetting({ postingTimes: times.filter((x) => x !== t) }) } }, '×') : null));
+  }
+  if (times.length < 6) {
+    const input = el('input', { type: 'time', class: 'input', style: 'width:auto;padding:3px 8px', 'aria-label': 'New posting time' });
+    const add = el('button', { type: 'button', class: 'chip add-chip', on: { click: () => { input.classList.toggle('hidden'); if (!input.classList.contains('hidden')) input.focus(); } } }, '+ Add');
+    input.classList.add('hidden');
+    input.addEventListener('change', () => input.value && saveSetting({ postingTimes: [...times, input.value] }));
+    wrap.append(add, input);
+  }
+  return wrap;
+}
 VIEWS.settings = async (c) => {
-  topbar('Settings', 'Appearance saves instantly · the rest lives in .env for now');
+  topbar('Settings', 'Changes save automatically and apply right away');
   const cfg = await api('/api/config');
   const theme = localStorage.getItem('queue-theme') || 'system';
   const seg = el('div', { class: 'seg' }, ...[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => el('button', { class: theme === k ? 'on' : '', on: { click: () => { setTheme(k); render(); } } }, l)));
@@ -821,15 +856,15 @@ VIEWS.settings = async (c) => {
   const sections = [
     ['appearance', 'Appearance', [['Theme', 'Apple Light, Apple Dark, or follow your Mac. The sun/moon button next to the logo flips it anywhere.', seg]]],
     ['scheduling', 'Scheduling', [
-      ['Send to Instagram early', 'Upload and let Instagram process before post time (max 23h) · STAGE_WINDOW_MIN', val(mins(cfg.stageWindowMin) + ' before')],
-      ['If a post is missed', 'Posts later than this wait for your OK · LATE_LIMIT_MIN', val(`Ask me if > ${mins(cfg.lateLimitMin)} late`)],
-      ['Your usual posting times', 'Quick picks in New post, and where calendar drops land', el('div', { class: 'quick' }, ...USUAL_TIMES.map(([v, l]) => el('span', { class: 'chip' + (v === USUAL_DEFAULT ? ' strong' : '') }, l)))],
+      ['Send to Instagram early', 'Upload ahead so Instagram has finished processing by post time. Instagram discards uploads after 24 hours.', selectSetting('stageWindowMin', cfg.stageWindowMin, [30, 60, 120, 240, 480, 720, 1380].map((m) => [m, `${mins(m)} before`]))],
+      ['If a post is missed', 'When the Mac was off or asleep at post time. Late posts beyond this wait for your OK.', selectSetting('lateLimitMin', cfg.lateLimitMin, [[0, 'Always ask me'], ...[15, 30, 60, 120, 360, 720].map((m) => [m, `Ask me if > ${mins(m)} late`])])],
+      ['Your usual posting times', 'Quick picks in New post. The ★ one is where calendar drops land — click a time to make it the default.', postingTimesEditor(cfg)],
       ['Time zone', 'Taken from your Mac', val(tz)]]],
     ['video', 'Video', [
       ['Fix files automatically', 'Cheapest safe fix first: lossless rewrap → audio fix → one clean encode', tog(true)],
       ['Convert iPhone HDR to standard colour', "Uses Apple's converter. Instagram's own HDR conversion looks washed out", tog(true)],
       ['Original files', 'Never changed. Queue always works on a copy', val('Untouched')]]],
-    ['notifications', 'Notifications', [['Mac notifications', 'Posted, failed and missed · NOTIFY', tog(cfg.notify)]]],
+    ['notifications', 'Notifications', [['Mac notifications', 'When a post goes live, fails, or misses its time', el('button', { class: 'toggle' + (cfg.notify ? ' on' : ''), type: 'button', 'aria-pressed': String(cfg.notify), 'aria-label': 'Mac notifications', on: { click: () => saveSetting({ notify: !cfg.notify }) } })]]],
     ['background', 'Background', [['Start at login', 'Runs without a Terminal window', el('div', { class: 'row', style: 'gap:10px' }, el('code', { class: 'cmd' }, `node bin/queue.js autostart ${cfg.autostart ? 'off' : 'on'}`), tog(cfg.autostart))]]],
     ['connection', 'Connection', [['Instagram login', 'IG_LOGIN', val(cfg.login)], ['Upload method', cfg.uploadMode === 'url' ? 'Instagram downloads your original from a temporary link' : 'Direct upload to Meta', val(cfg.uploadMode)], ['Graph API version', 'GRAPH_VERSION', val(cfg.graphVersion)]]],
   ];
@@ -960,18 +995,24 @@ async function openInComposer(name, date, time) {
     const up = await api(`/api/media/${encodeURIComponent(name)}`);
     resetComposer();
     C.upload = up;
-    if (date) { C.date = date; C.time = time || USUAL_DEFAULT; }
+    if (date) { C.date = date; C.time = time || usualDefault(); }
     if (location.hash === '#/new') render(); else location.hash = '#/new';
   } catch (e) { toast(e.message, true); }
 }
 function resetComposer() { Object.assign(C, { upload: null, caption: '', date: '', time: '', coverMs: null, platform: 'instagram', format: 'video', dests: null, capTab: 'all', captions: {}, photos: [], crop: 'per', frames: [], remind: false }); }
 
 // ---------------------------------------------------------------- boot
+let dragging = false;
+document.addEventListener('dragstart', () => { dragging = true; });
+document.addEventListener('dragend', () => { dragging = false; });
+document.addEventListener('drop', () => { dragging = false; });
 (async function boot() {
   try { await load(); } catch (e) { toast(e.message, true); }
   if (!location.hash) location.hash = '#/dashboard'; else render();
   setInterval(async () => {
-    if (modalOpen() || currentRoute() === 'new' || currentRoute() === 'settings' || document.hidden) return;
+    // Don't redraw under someone typing in a search box or mid-drag on the calendar.
+    const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+    if (modalOpen() || typing || dragging || currentRoute() === 'new' || currentRoute() === 'settings' || document.hidden) return;
     try { await load(); if (['dashboard', 'queue', 'calendar'].includes(currentRoute())) render(); } catch {}
   }, 15000);
 })();

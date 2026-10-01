@@ -6,6 +6,7 @@ import { FileShare } from './fileshare.js';
 import { TokenStore } from './token.js';
 import { Queue } from './queue.js';
 import { makeNotifier } from './notify.js';
+import { mergeSettings } from './settings.js';
 
 export function loadConfig(root) {
   if (existsSync(join(root, '.env'))) process.loadEnvFile(join(root, '.env'));
@@ -13,6 +14,7 @@ export function loadConfig(root) {
   const login = (env.IG_LOGIN || 'instagram').toLowerCase();
   if (!['instagram', 'facebook'].includes(login)) throw new Error(`IG_LOGIN must be "instagram" or "facebook", got "${env.IG_LOGIN}"`);
 
+  const settings = mergeSettings(join(root, 'data'), env);
   const tokens = new TokenStore(join(root, 'data', 'token.json'), env.IG_ACCESS_TOKEN?.trim());
   const log = (m) => console.log(new Date().toLocaleTimeString(), m);
 
@@ -31,9 +33,12 @@ export function loadConfig(root) {
     log,
     queue: new Queue(join(root, 'data', 'queue.json')),
     files: new FileShare({ publicBaseUrl: env.PUBLIC_BASE_URL || null, port: Number(env.SHARE_PORT || 0), log }),
-    stageWindowMin: Number(env.STAGE_WINDOW_MIN || 120),
-    lateLimitMin: Number(env.LATE_LIMIT_MIN || 120),
-    notify: makeNotifier(),
+    // App settings (data/settings.json) win over .env, which wins over the defaults.
+    stageWindowMin: settings.stageWindowMin,
+    lateLimitMin: settings.lateLimitMin,
+    notify: makeNotifier({ enabled: process.platform === 'darwin' }),
+    notifyOn: settings.notify,
+    settings,
     port: Number(env.PORT || 4400),
   };
 }

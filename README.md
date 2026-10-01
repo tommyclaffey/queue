@@ -66,10 +66,13 @@ which blocks other websites (CSRF and DNS rebinding). Temporary-link keys never 
 The link server serves only shared files, closes links when they're no longer needed (3h max), and
 can't be crashed by malformed requests.
 
-**Missed posts:** if the Mac was off or asleep at post time, a post more than `LATE_LIMIT_MIN` (default
-120) late becomes **missed** and waits for **Post now** or a new time, instead of going out by surprise.
+**Missed posts:** if the Mac was off or asleep at post time, a post more than the missed-post limit (default
+120 min, Settings page) late becomes **missed** and waits for **Post now** or a new time, instead of going out by surprise.
 
-**Notifications** (macOS): posted, failed, missed. `NOTIFY=0` turns them off.
+**Notifications** (macOS): posted, failed, missed. On/off in Settings.
+
+**Settings** are edited in the app and saved to `data/settings.json`, which wins over `.env`, which wins
+over the defaults. Changes apply immediately — no restart.
 
 **Autostart** (off by default): `node bin/queue.js autostart on` installs a LaunchAgent that starts
 Queue at login and restarts it after a crash. `autostart off` removes it. Log: `data/queue.log`.
@@ -101,7 +104,7 @@ Only one scheduler runs at a time (`data/scheduler.lock`). While it runs, the Ma
 ## Tests
 
 ```bash
-npm test     # 80 tests, ~60s
+npm test     # 84 tests, ~60s
 ```
 
 - `test/mock-meta.js` is a strict fake of Meta's Graph + rupload APIs, built from Meta's docs. It checks
@@ -124,6 +127,7 @@ npm test     # 80 tests, ~60s
 ```
 bin/queue.js      CLI entry
 src/config.js     .env → ready objects
+src/settings.js   app settings (data/settings.json) over .env over defaults
 src/specs.js      Instagram Reels spec
 src/probe.js      ffprobe + moov-atom check
 src/preflight.js  spec check → least-destructive fix plan
