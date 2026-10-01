@@ -197,6 +197,36 @@ test('the real app is not the demo: no fake accounts, no demo posts, honest qual
   assert.deepEqual(s.body.post.platforms, ['instagram'], 'real posts only ever go to Instagram');
 });
 
+test('benchmark: create, add a result from an uploaded file, average, remove', async () => {
+  const orig = makeVideo(dir, 'bench-orig.mp4');
+  const up = await upload(orig, 'Bench Clip.mp4');
+  const served = makeVideo(dir, 'bench-served.mp4', { vbitrate: '300k' });
+  assert.equal((await api('/api/benchmarks', json('POST', { name: '  ' }))).status, 400);
+  const b = (await api('/api/benchmarks', json('POST', { name: 'Test bench' }))).body.benchmark;
+  const add = (clip, route, file) => api(`/api/benchmarks/${b.id}/entries?clip=${encodeURIComponent(clip)}&route=${encodeURIComponent(route)}`, { method: 'POST', body: readFileSync(file) });
+  assert.equal((await add('nope.mp4', 'Buffer', served)).status, 400, 'clip must be in the Library');
+  assert.equal((await add(up.body.name, '', served)).status, 400, 'route needs a name');
+  const r = await add(up.body.name, 'Buffer', served);
+  assert.equal(r.status, 200);
+  assert.ok(r.body.entry.result.vmaf > 0 && r.body.entry.result.vmaf < 100);
+  assert.equal(r.body.entry.label, 'Buffer');
+  assert.equal(r.body.entry.route, 'bench', 'benchmark results never count as Queue posts');
+  // A non-video body is rejected and leaves nothing behind.
+  const junk = await api(`/api/benchmarks/${b.id}/entries?clip=${encodeURIComponent(up.body.name)}&route=X`, { method: 'POST', body: 'not a video' });
+  assert.equal(junk.status, 400);
+  let q = (await api('/api/quality')).body.comparisons.filter((x) => x.benchmarkId === b.id);
+  assert.equal(q.length, 1);
+  assert.equal((await fetch(`${base}/quality-media/${q[0].served}`)).status, 200);
+  // Pulling from Instagram needs a post id.
+  assert.equal((await api(`/api/benchmarks/${b.id}/entries`, json('POST', { clip: up.body.name, route: 'Later' }))).status, 400);
+  assert.equal((await api(`/api/benchmarks/${b.id}/entries/${q[0].id}`, { method: 'DELETE' })).status, 200);
+  q = (await api('/api/quality')).body.comparisons.filter((x) => x.benchmarkId === b.id);
+  assert.equal(q.length, 0);
+  assert.equal((await api(`/api/benchmarks/${b.id}`, { method: 'DELETE' })).status, 200);
+  assert.ok(!(await api('/api/benchmarks')).body.benchmarks.some((x) => x.id === b.id));
+  assert.equal((await api('/api/benchmarks/bm-missing/entries', json('POST', {}))).status, 404);
+});
+
 test('config reports the scheduler settings', async () => {
   const { status, body } = await api('/api/config');
   assert.equal(status, 200);

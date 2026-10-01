@@ -254,7 +254,7 @@ drawThemeBtn();
 function renderChrome() {
   const route = currentRoute();
   const nNeed = S.posts.filter(needsYou).length;
-  $('#nav').replaceChildren(...NAV.map(([id, label, ic]) => el('a', { href: `#/${id}`, class: (route === 'post' ? 'queue' : route) === id ? 'active' : '' }, icon(ic), label, id === 'queue' && nNeed ? el('span', { class: 'count' }, String(nNeed)) : null)));
+  $('#nav').replaceChildren(...NAV.map(([id, label, ic]) => el('a', { href: `#/${id}`, class: ({ post: 'queue', benchmark: 'quality' }[route] || route) === id ? 'active' : '' }, icon(ic), label, id === 'queue' && nNeed ? el('span', { class: 'count' }, String(nNeed)) : null)));
   const st = S.status;
   const live = st && !st.dryRun && st.account;
   const acct = $('#account');
@@ -890,8 +890,23 @@ function previewCaption(platform, text) {
   const max = platform === 'linkedin' ? 110 : platform === 'tiktok' ? 80 : 52;
   return t.length > max ? t.slice(0, max).trimEnd() + '… more' : t;
 }
+// The platform's buttons, caption and nav drawn over the preview. Off = just your video, edge to edge.
+let previewUI = localStorage.getItem('queue-preview-ui') !== 'off';
+function uiToggle(redraw) {
+  const t = el('button', { class: 'toggle' + (previewUI ? ' on' : ''), type: 'button', 'aria-pressed': String(previewUI), 'aria-label': 'Show app interface' });
+  const row = el('label', { class: 'preview-toggle' }, el('span', {}, 'App interface'), t);
+  t.addEventListener('click', (e) => {
+    e.preventDefault();
+    previewUI = !previewUI;
+    localStorage.setItem('queue-preview-ui', previewUI ? 'on' : 'off');
+    t.classList.toggle('on', previewUI); t.setAttribute('aria-pressed', String(previewUI));
+    redraw();
+  });
+  return row;
+}
 function phone(platform, video, caption) {
   const ph = el('div', { class: 'phone' + (platform === 'linkedin' ? ' light' : '') });
+  if (!previewUI) { ph.className = 'phone clean'; ph.append(video); return ph; }
   const ui = el('div', { class: 'ui' });
   const I = (n, size = 24) => el('span', { style: `display:block;width:${size}px;height:${size}px`, html: svgIcon(n) });
   const at = (node, style) => { node.classList.add('abs'); node.setAttribute('style', (node.getAttribute('style') || '') + ';' + style); return node; };

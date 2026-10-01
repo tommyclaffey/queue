@@ -185,7 +185,7 @@ export class InstagramClient {
   // Your most recent posts — including ones made from the Instagram app, for side-by-side quality tests.
   async recentMedia(limit = 10) {
     if (this.dryRun) return [];
-    const { data } = await this.#call(`${this.graph}/${this.userId}/media?fields=id,caption,media_type,media_url,permalink,timestamp&limit=${limit}`);
+    const { data } = await this.#call(`${this.graph}/${this.userId}/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp&limit=${limit}`);
     return data || [];
   }
 

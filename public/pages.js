@@ -121,11 +121,12 @@ let labMode = 'side';
 VIEWS.quality = async (c, compId) => {
   const comps = [...S.quality].sort((a, b) => b.at.localeCompare(a.at));
   const postOf = (q) => S.posts.find((p) => p.id === q.postId);
-  const label = (q) => `${postOf(q)?.caption?.split(/[.!?\n]/)[0].slice(0, 32) || shortName(q.original)} · ${q.route === 'app' ? `${PNAME[q.platform]} app` : q.platform === 'instagram' ? 'via Queue' : PNAME[q.platform]}`;
+  const label = (q) => q.label ? `${shortName(q.original)} · ${q.label}` : `${postOf(q)?.caption?.split(/[.!?\n]/)[0].slice(0, 32) || shortName(q.original)} · ${q.route === 'app' ? `${PNAME[q.platform]} app` : q.platform === 'instagram' ? 'via Queue' : PNAME[q.platform]}`;
   const sel = comps.find((q) => q.id === compId) || comps.find((q) => q.route === 'queue') || comps[0];
   topbar('Quality Lab', 'Compare your original with what Instagram actually serves', [
     sel ? btn('Export report', 'secondary', () => exportReport(sel, postOf(sel))) : null,
     btn('New comparison', 'primary', newComparison)].filter(Boolean));
+  c.append(labTabs('quality'));
   if (!sel) return qualityEmpty(c);
   const r = sel.result;
 
@@ -139,7 +140,7 @@ VIEWS.quality = async (c, compId) => {
   const A = el('video', { src: `/media/${encodeURIComponent(sel.original)}`, muted: true, playsInline: true, preload: 'auto' });
   const B = el('video', { src: `/quality-media/${encodeURIComponent(sel.served)}`, muted: true, playsInline: true, preload: 'auto' });
   A.muted = B.muted = true;
-  const servedName = sel.route === 'app' ? `Via ${PNAME[sel.platform]} app` : `On ${PNAME[sel.platform]}`;
+  const servedName = sel.label ? `Via ${sel.label}` : sel.route === 'app' ? `Via ${PNAME[sel.platform]} app` : `On ${PNAME[sel.platform]}`;
   const stage = el('div', { class: 'lab-stage' });
   const head = el('h2', { class: 'h3', style: 'flex:1' }, `Frame ${fmtClock(r.worstAt)} — the worst moment`);
   const modes = el('div', { class: 'seg' }, ...[['side', 'Side by side'], ['slider', 'Slider'], ['diff', 'Difference']].map(([k, l]) => el('button', { class: labMode === k ? 'on' : '', on: { click: () => { labMode = k; layout(); [...modes.children].forEach((b, i) => b.classList.toggle('on', ['side', 'slider', 'diff'][i] === k)); } } }, l)));
@@ -399,7 +400,7 @@ function videoComposer(c) {
   const coverLbl = el('span', { class: 'small muted', style: 'flex:1' }, C.coverMs == null ? 'Cover: Instagram picks' : `Cover: ${(C.coverMs / 1000).toFixed(1)}s`);
   const coverRow = el('div', { class: 'row' }, coverLbl, btn('Use this frame', 'secondary small', () => { C.coverMs = Math.round(video.currentTime * 1000); coverLbl.textContent = `Cover: ${video.currentTime.toFixed(1)}s`; toast('Cover frame set'); }));
   const playRow = el('div', { class: 'row small muted', style: 'gap:8px;margin-top:8px' }, btn('Pause', 'secondary small', (e) => { if (video.paused) { video.play(); e.target.textContent = 'Pause'; } else { video.pause(); e.target.textContent = 'Play'; } }), el('span', {}, 'Pause on the frame you want as the cover.'));
-  grid.append(el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, label2, phoneWrap, note, el('div', { class: 'card', style: 'padding:12px' }, coverRow, playRow)));
+  grid.append(el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, uiToggle(drawPreview), label2, phoneWrap, note, el('div', { class: 'card', style: 'padding:12px' }, coverRow, playRow)));
 
   // destinations + caption + when
   const avail = multi ? VIDEO_DESTS : ['instagram', 'youtubeshorts', 'tiktok', 'facebook', 'linkedin'];
@@ -531,7 +532,7 @@ function photosComposer(c) {
   topbar('New post', el('span', { class: 'mono small' }, `${n} photo${n === 1 ? '' : 's'} · carousel · 1600×2400 originals`), [fmtSeg(), cancelBtn(), btn(`Schedule to ${on.length} platform${on.length === 1 ? '' : 's'}`, 'primary', () => scheduleDemo('photos', C.photos, on), { disabled: !n || !on.length })]);
   if (!['instagram', 'tiktok', 'linkedin', 'facebook'].includes(C.platform)) C.platform = 'instagram';
   const ptabs = el('div', { class: 'ptabs' }, ...['instagram', 'tiktok', 'linkedin', 'facebook'].map((p) => el('button', { class: C.platform === p ? 'on' : '', html: svgLogo(p), title: PNAME[p], on: { click: () => { C.platform = p; render(); } } })));
-  const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, photoPhone(C.platform, C.photos), el('div', { class: 'preview-note' }, { instagram: "Instagram crops every photo to the first photo's shape. Queue sets 4:5 for the tallest look.", tiktok: 'TikTok shows photos full-screen at 9:16. Queue fits each one with a soft blurred fill.', linkedin: 'LinkedIn shows a grid in the feed, then the full photos when tapped.', facebook: 'Facebook keeps more pixels than Instagram — up to 2048 wide.' }[C.platform]));
+  const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, uiToggle(render), photoPhone(C.platform, C.photos), el('div', { class: 'preview-note' }, { instagram: "Instagram crops every photo to the first photo's shape. Queue sets 4:5 for the tallest look.", tiktok: 'TikTok shows photos full-screen at 9:16. Queue fits each one with a soft blurred fill.', linkedin: 'LinkedIn shows a grid in the feed, then the full photos when tapped.', facebook: 'Facebook keeps more pixels than Instagram — up to 2048 wide.' }[C.platform]));
   const crop = el('div', { class: 'seg small-seg' }, ...[['per', 'Per platform'], ['45', '4:5'], ['11', '1:1'], ['916', '9:16']].map(([k, l]) => el('button', { class: C.crop === k ? 'on' : '', on: { click: () => { C.crop = k; render(); } } }, l)));
   const photosCard = el('div', { class: 'card stack', style: 'gap:10px' }, el('div', { class: 'row' }, el('h2', { class: 'h3', style: 'flex:1' }, 'Photos'), el('span', { class: 'small faint' }, 'Crop'), crop), stripTiles(C.photos, (i) => (i === 0 ? 'Cover' : String(i + 1)), () => photoPicker(C.photos, 35)), el('div', { class: 'small faint' }, 'Drag to reorder · the first photo is the cover everywhere'));
   const dests = el('div', { class: 'card flush' }, el('div', { class: 'row', style: 'padding:14px 18px' }, el('h2', { class: 'h3', style: 'flex:1' }, 'Destinations'), el('span', { class: 'small faint' }, `${on.length} of ${PHOTO_DESTS.length} on`)));
@@ -551,6 +552,7 @@ function photosComposer(c) {
 function photoPhone(platform, images) {
   const ph = el('div', { class: 'phone' + (platform === 'linkedin' ? ' light' : '') });
   if (!images.length) { ph.append(el('div', { class: 'ph-empty' }, 'Add photos to preview')); return ph; }
+  if (!previewUI) { ph.className = 'phone clean'; ph.append(el('div', { style: 'position:absolute;inset:0' }, carousel(images, 'fill'))); return ph; }
   const me = S.extras?.account?.username || 'yourname';
   const av = el('img', { class: 'av', src: imgUrl(S.extras?.account?.avatar || images[0]), alt: '' });
   if (platform === 'instagram' || platform === 'facebook' || platform === 'linkedin') {
@@ -571,7 +573,7 @@ function storyComposer(c) {
   topbar('New post', el('span', { class: 'mono small' }, `${n} frame${n === 1 ? '' : 's'} · ${n * 5}s total · 9:16`), [fmtSeg(), cancelBtn(), btn(`Schedule to ${on.length} platform${on.length === 1 ? '' : 's'}`, 'primary', () => scheduleDemo('story', C.frames, on), { disabled: !n || !on.length })]);
   if (!['instagram', 'facebook'].includes(C.platform)) C.platform = 'instagram';
   const ptabs = el('div', { class: 'ptabs' }, ...['instagram', 'facebook'].map((p) => el('button', { class: C.platform === p ? 'on' : '', html: svgLogo(p), title: PNAME[p], on: { click: () => { C.platform = p; render(); } } })));
-  const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, storyPhone(C.frames), el('div', { class: 'preview-note' }, 'Tap the preview to step through frames. The top and bottom 14% sit under the story bar and reply box.'));
+  const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, uiToggle(render), storyPhone(C.frames), el('div', { class: 'preview-note' }, 'Tap the preview to step through frames. The top and bottom 14% sit under the story bar and reply box.'));
   const frames = el('div', { class: 'card stack', style: 'gap:10px' }, el('h2', { class: 'h3' }, 'Frames'), stripTiles(C.frames, () => '5s Photo', () => photoPicker(C.frames, 10)), el('div', { class: 'small faint' }, 'Each photo shows for 5 seconds. Frames post in order, one after another.'));
   const dests = el('div', { class: 'card flush' }, el('div', { class: 'row', style: 'padding:14px 18px' }, el('h2', { class: 'h3', style: 'flex:1' }, 'Destinations'), el('span', { class: 'small faint' }, '2 possible')));
   for (const [p, fmt] of [['instagram', 'Story'], ['facebook', 'Page story']]) dests.append(el('div', { class: 'dest-row' }, toggleBtn(C.dests.has(p), () => { C.dests.has(p) ? C.dests.delete(p) : C.dests.add(p); render(); }), badge(p), el('div', { class: 'who' }, el('b', {}, PNAME[p]), el('div', { class: 'small faint' }, S.extras.platforms[p]?.handle)), el('span', { class: 'chip' }, fmt), el('span', { class: 'pill' }, `Queue posts at ${usualLabel()}`)));
@@ -590,7 +592,7 @@ function storyPhone(frames) {
   const img = el('img', { class: 'story-img', src: imgUrl(frames[0]), alt: '' });
   const bars = el('div', { class: 'story-bars' }, ...frames.map((_, k) => el('i', { class: k === 0 ? 'on' : '' })));
   const me = S.extras?.account?.username || 'yourname';
-  ph.append(img, el('div', { class: 'shade-t' }), bars, el('div', { class: 'story-head' }, el('img', { class: 'av', src: imgUrl(S.extras?.account?.avatar || frames[0]), alt: '' }), el('b', {}, me), el('span', { class: 'faint-w' }, 'Scheduled')));
+  if (!previewUI) ph.append(img); else ph.append(img, el('div', { class: 'shade-t' }), bars, el('div', { class: 'story-head' }, el('img', { class: 'av', src: imgUrl(S.extras?.account?.avatar || frames[0]), alt: '' }), el('b', {}, me), el('span', { class: 'faint-w' }, 'Scheduled')));
   ph.addEventListener('click', () => { i = (i + 1) % frames.length; img.src = imgUrl(frames[i]); [...bars.children].forEach((b, k) => b.classList.toggle('on', k <= i)); });
   return ph;
 }
@@ -601,4 +603,196 @@ async function scheduleDemo(kind, images, platforms) {
     const { post } = await api('/api/demo/post', json('POST', { kind, images, caption: C.caption, at: when.toISOString(), platforms }));
     resetComposer(); toast(`Scheduled for ${fmtWhen(post.publishAt)}`); await load(); location.hash = `#/post/${post.id}`;
   } catch (e) { toast(e.message, true); }
+}
+
+// ================================================================ BENCHMARK
+// The same clips, posted through every route, scored the same way. Turns into a claim you can publish.
+const ROUTE_SUGGESTIONS = ['Queue', 'Instagram app', 'Buffer', 'Later', 'Metricool', 'Hootsuite', 'Planoly', 'Sprout Social'];
+const labTabs = (on) => el('div', { class: 'tabs' }, ...[['quality', 'Compare'], ['benchmark', 'Benchmark']].map(([k, l]) => el('button', { class: on === k ? 'on' : '', on: { click: () => (location.hash = `#/${k}`) } }, l)));
+let benchSel = null;
+
+// Averages per route, over only the clips that EVERY route has measured — so no route
+// looks better just because it skipped a hard clip.
+function benchStats(entries) {
+  const clips = [...new Set(entries.map((e) => e.original))];
+  const routes = [...new Set(entries.map((e) => e.label))];
+  const cell = (r, c) => entries.filter((e) => e.label === r && e.original === c).sort((a, b) => b.at.localeCompare(a.at))[0] || null;
+  const complete = clips.filter((c) => routes.every((r) => cell(r, c)));
+  const avg = (r) => (complete.length ? complete.reduce((a, c) => a + cell(r, c).result.vmaf, 0) / complete.length : null);
+  const ranked = routes.map((r) => ({ route: r, avg: avg(r) })).sort((a, b) => (b.avg ?? -1) - (a.avg ?? -1));
+  return { clips, routes, cell, complete, ranked };
+}
+function benchClaim(st) {
+  const q = st.ranked.find((x) => /^queue$/i.test(x.route));
+  const others = st.ranked.filter((x) => x !== q);
+  const otherSchedulers = others.filter((x) => !/instagram app/i.test(x.route)).length;
+  const gaps = [];
+  if (!q) gaps.push('a "Queue" route');
+  if (st.complete.length < 3) gaps.push(`${3 - st.complete.length} more clip${3 - st.complete.length === 1 ? '' : 's'} measured on every route`);
+  if (otherSchedulers < 3) gaps.push(`${3 - otherSchedulers} more scheduler${3 - otherSchedulers === 1 ? '' : 's'}`);
+  if (!q || !others.length || !st.complete.length) return { text: null, gaps };
+  const best = others[0];
+  const d = q.avg - best.avg;
+  // Under 1 VMAF point is within measurement noise and invisible to viewers: call it a tie.
+  const n = `${st.complete.length} clip${st.complete.length === 1 ? '' : 's'}`;
+  const beat = others.filter((x) => q.avg - x.avg >= 1);
+  const text = d >= 1
+    ? `Across ${n} and ${others.length} other route${others.length === 1 ? '' : 's'}, Queue averaged VMAF ${q.avg.toFixed(1)} — ${d.toFixed(1)} points above the next-best route (${best.route}, ${best.avg.toFixed(1)}).`
+    : d > -1
+      ? `Across ${n}, Queue matched the best other route (${best.route}): VMAF ${q.avg.toFixed(1)} vs ${best.avg.toFixed(1)}, within a point.${beat.length ? ` It beat ${beat.map((x) => `${x.route} (+${(q.avg - x.avg).toFixed(1)})`).join(', ')}.` : ''}`
+      : `Across ${n}, ${best.route} scored higher than Queue (VMAF ${best.avg.toFixed(1)} vs ${q.avg.toFixed(1)}).`;
+  return { text, gaps, win: d >= 1 };
+}
+function benchMethod(b, st, entries) {
+  const metaOf = (c) => entries.find((e) => e.original === c)?.result.original;
+  return [
+    `Method — ${b.name}`,
+    `Each clip was posted through every route to the same Instagram account. Queue then downloaded the version Instagram serves and compared it with the original file using VMAF (Netflix's 0–100 perceptual score), plus SSIM and PSNR. Both versions are scaled to the same 1080-wide frame first, so the score reflects compression damage, not size.`,
+    '', 'Clips:', ...st.clips.map((c) => { const m = metaOf(c); return `• ${shortName(c)} — ${m ? `${m.resolution}, ${m.mbps} Mbps, ${m.mb} MB` : ''}`; }),
+    '', 'Routes:', ...st.routes.map((r) => `• ${r}`),
+    '', `Averages use only clips measured on every route (${st.complete.length} of ${st.clips.length}).`,
+    `Measured ${new Date(Math.min(...entries.map((e) => +new Date(e.at)))).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} – ${new Date(Math.max(...entries.map((e) => +new Date(e.at)))).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}.`,
+    b.note ? `\nNote: ${b.note}` : '',
+  ].join('\n');
+}
+const copyText = async (t, what) => { try { await navigator.clipboard.writeText(t); toast(`${what} copied`); } catch { toast("Couldn't copy", true); } };
+
+VIEWS.benchmark = async (c) => {
+  const { benchmarks } = await api('/api/benchmarks');
+  const b = benchmarks.find((x) => x.id === benchSel) || benchmarks[benchmarks.length - 1];
+  if (b) benchSel = b.id;
+  const pick = benchmarks.length > 1 ? el('select', { class: 'input select-sm', on: { change: (e) => { benchSel = e.target.value; render(); } } }, ...benchmarks.map((x) => el('option', { value: x.id, selected: x.id === b.id }, x.name))) : null;
+  topbar('Benchmark', 'The same clips through every route, measured the same way', [pick, btn('New benchmark', b ? 'secondary' : 'primary', newBenchmark), b ? btn('Add result', 'primary', () => addBenchResult(b)) : null].filter(Boolean));
+  c.append(labTabs('benchmark'));
+  if (!b) {
+    c.append(el('div', { class: 'card stack', style: 'gap:14px;max-width:760px' }, el('h2', { class: 'h3' }, 'How a benchmark works'),
+      el('ol', { class: 'steps-list' }, ...[
+        'Pick 3–5 clips that stress quality differently: iPhone 4K HDR, clean 1080p, fast motion, a dark scene, on-screen text.',
+        'Post every clip through every route to a test Instagram account: Queue, the Instagram app, and 3–5 other schedulers.',
+        'Here, add each post as a result. Queue downloads what Instagram serves and scores it against your original.',
+        'Queue writes the claim and the method for you, using only clips every route was measured on.',
+      ].map((t) => el('li', {}, t))),
+      el('div', {}, btn('Start a benchmark', 'primary', newBenchmark))));
+    return;
+  }
+  const entries = S.quality.filter((q) => q.benchmarkId === b.id);
+  const st = benchStats(entries);
+  const claim = benchClaim(st);
+
+  // ---- claim
+  const ready = claim.text && !claim.gaps.length;
+  const claimCard = el('div', { class: 'card stack claim' + (ready && claim.win ? ' ready' : ''), style: 'gap:10px' },
+    el('div', { class: 'row' }, el('h2', { class: 'h3', style: 'flex:1' }, 'The claim'), el('span', { class: `pill ${ready && claim.win ? 'posted' : 'missed'}` }, !ready ? 'Not enough data yet' : claim.win ? '✓ Ready to publish' : 'No lead to claim')),
+    el('div', { class: 'claim-text' }, claim.text || 'Add results to see what you can claim.'),
+    claim.gaps.length ? el('div', { class: 'small muted' }, `Before you publish it, add ${claim.gaps.join(', ')}.`) : el('div', { class: 'small muted' }, claim.win ? 'Publish it with the method below, so anyone can check it.' : "Don't claim \"higher quality than other schedulers\" from this. Claim only what Queue beat, or what only Queue does (HDR, fixing files that break the rules)."),
+    b.note ? el('div', { class: 'small', style: 'color:var(--warning)' }, b.note) : null,
+    el('div', { class: 'row' }, btn('Copy claim', 'secondary small', () => copyText(claim.text, 'Claim'), { disabled: !claim.text }), btn('Copy method', 'ghost small', () => copyText(benchMethod(b, st, entries), 'Method'), { disabled: !entries.length })));
+
+  // ---- chart: average VMAF per route (zero baseline, one series, Queue emphasised)
+  const chart = el('div', { class: 'card stack', style: 'gap:12px' }, el('div', { class: 'row' }, el('h2', { class: 'h3', style: 'flex:1' }, 'Average quality by route'), el('span', { class: 'small faint' }, st.complete.length ? `VMAF · ${st.complete.length} clip${st.complete.length === 1 ? '' : 's'} measured on every route` : 'VMAF')));
+  if (!st.complete.length) chart.append(el('div', { class: 'small muted' }, entries.length ? 'No clip has been measured on every route yet. Fill the gaps in the table below.' : 'No results yet.'));
+  else {
+    const rows = el('div', { class: 'hbars', role: 'list' });
+    for (const r of st.ranked) {
+      const isQ = /^queue$/i.test(r.route);
+      rows.append(el('div', { class: 'hbar-row', role: 'listitem', title: `${r.route}: VMAF ${r.avg.toFixed(1)} average` },
+        el('span', { class: 'hbar-label' + (isQ ? ' strong' : '') }, r.route),
+        el('div', { class: 'hbar-track' }, el('div', { class: 'hbar' + (isQ ? ' us' : ''), style: `width:${r.avg}%` })),
+        el('span', { class: 'hbar-val mono' }, r.avg.toFixed(1))));
+    }
+    chart.append(rows, el('div', { class: 'hbar-row axis' }, el('span'), el('div', { class: 'hbar-ticks small faint' }, ...[[0, '0'], [70, '70 noticeable'], [85, '85 good'], [100, '100']].map(([n, l]) => el('span', { style: `left:${n}%` }, l))), el('span')));
+  }
+
+  // ---- table: routes × clips
+  const table = el('table', { class: 'table bench' });
+  const head = el('tr', {}, el('th', {}, 'Route'), ...st.clips.map((cl) => { const m = entries.find((e) => e.original === cl)?.result.original; return el('th', { title: shortName(cl) }, el('div', { class: 'bench-clip' }, el('video', { muted: true, playsInline: true, preload: 'metadata', src: `/media/${encodeURIComponent(cl)}#t=0.8` }), el('span', {}, shortName(cl)), m ? el('span', { class: 'faint' }, m.resolution) : null)); }), el('th', {}, 'Average'));
+  const tbody = el('tbody');
+  for (const r of st.ranked) {
+    const best = (cl) => Math.max(...st.routes.map((x) => st.cell(x, cl)?.result.vmaf ?? -1));
+    tbody.append(el('tr', { class: /^queue$/i.test(r.route) ? 'us' : '' }, el('td', { class: 'strong' }, r.route),
+      ...st.clips.map((cl) => {
+        const e = st.cell(r.route, cl);
+        if (!e) return el('td', {}, el('button', { class: 'cell-add', type: 'button', title: `Add ${r.route} for ${shortName(cl)}`, on: { click: () => addBenchResult(b, { clip: cl, route: r.route }) } }, '+ Add'));
+        const del = el('button', { class: 'cell-x', type: 'button', 'aria-label': 'Remove result', on: { click: (ev) => { ev.stopPropagation(); removeBenchEntry(b, e); } } }, '×');
+        return el('td', { class: 'cell clickable' + (e.result.vmaf === best(cl) ? ' best' : ''), title: `${e.result.verdict} · open side by side`, on: { click: () => (location.hash = `#/quality/${e.id}`) } }, el('span', { class: 'mono' }, String(e.result.vmaf)), del);
+      }),
+      el('td', { class: 'mono' + (r.avg != null && r.avg === st.ranked[0].avg ? ' strong' : '') }, r.avg != null ? r.avg.toFixed(1) : '—')));
+  }
+  table.append(el('thead', {}, head), tbody);
+  const tableCard = el('div', { class: 'card flush' }, el('div', { class: 'row', style: 'padding:16px 18px' }, el('h2', { class: 'h3', style: 'flex:1' }, 'Every result'), el('span', { class: 'small faint' }, 'Bold = best on that clip · click a score to see it side by side')), entries.length ? el('div', { style: 'overflow-x:auto' }, table) : el('div', { class: 'empty' }, el('div', { class: 'h3' }, 'No results yet'), el('div', {}, 'Post a clip through a route, then add it here.'), el('div', { style: 'margin-top:14px' }, btn('Add result', 'primary', () => addBenchResult(b)))));
+
+  const method = el('div', { class: 'card stack', style: 'gap:8px' }, el('h2', { class: 'h3' }, 'Method'), el('pre', { class: 'method' }, benchMethod(b, st, entries)),
+    el('div', { class: 'small faint' }, 'HDR originals: VMAF compares pixel values, so a correctly tone-mapped SDR version can score lower than one that just looks washed out. For HDR clips, judge with your eyes in the side-by-side view as well as the number.'),
+    el('div', {}, btn('Delete benchmark', 'ghost small danger', () => deleteBenchmark(b))));
+  c.append(el('div', { class: 'bench-grid' }, el('div', { class: 'stack', style: 'gap:16px;min-width:0' }, claimCard, chart, tableCard), el('div', { class: 'stack', style: 'gap:16px' }, method)));
+};
+function newBenchmark() {
+  modal((m, close) => {
+    const name = el('input', { class: 'input', placeholder: 'e.g. Launch benchmark', maxlength: 60 });
+    const err = el('div', { class: 'small', style: 'color:var(--danger)' });
+    const go = async () => { try { const { benchmark } = await api('/api/benchmarks', json('POST', { name: name.value })); benchSel = benchmark.id; close(); render(); } catch (e) { err.textContent = e.message; } };
+    name.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    m.append(el('h2', { class: 'h2' }, 'New benchmark'), el('label', { class: 'field' }, el('span', {}, 'Name'), name), err, el('div', { class: 'foot' }, btn('Cancel', 'ghost', close), btn('Create', 'primary', go)));
+    name.focus();
+  });
+}
+function deleteBenchmark(b) {
+  modal((m, close) => {
+    m.append(el('h2', { class: 'h2' }, `Delete "${b.name}"?`), el('div', { class: 'muted' }, 'Its results and the downloaded copies are removed. Your originals and posts are not touched.'),
+      el('div', { class: 'foot' }, btn('Cancel', 'ghost', close), btn('Delete', 'primary', async () => { try { await api(`/api/benchmarks/${b.id}`, { method: 'DELETE' }); benchSel = null; close(); await load(); render(); } catch (e) { toast(e.message, true); } })));
+  });
+}
+async function removeBenchEntry(b, e) {
+  try { await api(`/api/benchmarks/${b.id}/entries/${e.id}`, { method: 'DELETE' }); toast('Result removed'); await load(); render(); } catch (err) { toast(err.message, true); }
+}
+function addBenchResult(b, preset = {}) {
+  modal(async (m, close) => {
+    m.classList.add('wide');
+    const known = [...new Set(S.quality.filter((q) => q.benchmarkId === b.id).map((q) => q.label))];
+    const list = el('datalist', { id: 'routeList' }, ...[...new Set([...known, ...ROUTE_SUGGESTIONS])].map((r) => el('option', { value: r })));
+    const route = el('input', { class: 'input', list: 'routeList', placeholder: 'e.g. Instagram app, Buffer, Queue', value: preset.route || '', maxlength: 40 });
+    const clipSel = el('select', { class: 'input' }, el('option', { value: '' }, 'Loading your Library…'));
+    let source = 'instagram'; let mediaId = null; let file = null;
+    const srcSeg = el('div', { class: 'seg' });
+    const srcBody = el('div');
+    const err = el('div', { class: 'small', style: 'color:var(--danger)' });
+    const go = btn('Measure', 'primary', submit);
+    m.append(el('div', { class: 'row' }, el('h2', { class: 'h2', style: 'flex:1' }, 'Add a result'), el('span', { class: 'small faint' }, b.name)),
+      el('div', { class: 'row', style: 'gap:12px;align-items:flex-start' }, el('label', { class: 'field', style: 'flex:1' }, el('span', {}, 'Original clip'), clipSel), el('label', { class: 'field', style: 'flex:1' }, el('span', {}, 'Route it was posted through'), route, list)),
+      el('div', { class: 'field' }, el('span', {}, 'What Instagram served'), srcSeg), srcBody, err, el('div', { class: 'foot' }, el('span', { class: 'small faint', style: 'flex:1' }, 'Measuring takes about a minute.'), btn('Cancel', 'ghost', close), go));
+    const drawSrc = () => { srcSeg.replaceChildren(...[['instagram', 'Pick from Instagram'], ['file', 'Upload the file']].map(([k, l]) => el('button', { class: source === k ? 'on' : '', on: { click: () => { source = k; drawSrc(); } } }, l))); fillSrc(); };
+    async function fillSrc() {
+      if (source === 'file') {
+        const input = el('input', { type: 'file', accept: 'video/*', class: 'input', on: { change: (e) => { file = e.target.files[0] || null; } } });
+        srcBody.replaceChildren(el('div', { class: 'stack', style: 'gap:6px' }, input, el('div', { class: 'small faint' }, 'Use this when Instagram won\'t hand the file over (Reels with licensed music). Save the posted video to your Mac, then upload it here.')));
+        return;
+      }
+      srcBody.replaceChildren(el('div', { class: 'small muted' }, 'Loading your recent posts…'));
+      try {
+        const r = await api('/api/instagram/recent');
+        if (!r.media.length) { srcBody.replaceChildren(el('div', { class: 'inset small muted' }, r.reason === 'demo' ? 'The demo has no Instagram account to pull from. Use "Upload the file" to try it.' : r.reason === 'dryrun' ? 'Connect Instagram first (Meta Setup Guide), or upload the file.' : 'No videos on the account yet.')); return; }
+        const grid = el('div', { class: 'ig-pick' }, ...r.media.map((x) => el('button', { class: 'ig-item' + (mediaId === x.id ? ' on' : ''), type: 'button', on: { click: (e) => { mediaId = x.id; grid.querySelectorAll('.ig-item').forEach((n) => n.classList.remove('on')); e.currentTarget.classList.add('on'); } } }, x.thumbnail_url ? el('img', { src: x.thumbnail_url, alt: '', referrerpolicy: 'no-referrer' }) : el('div', { class: 'ig-ph' }), el('span', { class: 'small' }, (x.caption || '(no caption)').slice(0, 40)), el('span', { class: 'small faint' }, new Date(x.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })))));
+        srcBody.replaceChildren(grid);
+      } catch (e) { srcBody.replaceChildren(el('div', { class: 'small', style: 'color:var(--danger)' }, e.message)); }
+    }
+    async function submit() {
+      err.textContent = '';
+      if (!clipSel.value) return (err.textContent = 'Pick the original clip.');
+      if (!route.value.trim()) return (err.textContent = 'Name the route.');
+      if (source === 'instagram' && !mediaId) return (err.textContent = 'Pick the post on Instagram.');
+      if (source === 'file' && !file) return (err.textContent = 'Choose the downloaded file.');
+      go.disabled = true; go.textContent = 'Measuring…';
+      try {
+        if (source === 'instagram') await api(`/api/benchmarks/${b.id}/entries`, json('POST', { clip: clipSel.value, route: route.value, mediaId }));
+        else await api(`/api/benchmarks/${b.id}/entries?clip=${encodeURIComponent(clipSel.value)}&route=${encodeURIComponent(route.value)}`, { method: 'POST', body: file });
+        close(); toast('Result added'); await load(); render();
+      } catch (e) { err.textContent = e.message; go.disabled = false; go.textContent = 'Measure'; }
+    }
+    drawSrc();
+    try {
+      const { items } = await api('/api/media');
+      const originals = items.filter((i) => !i.fixedCopy);
+      clipSel.replaceChildren(el('option', { value: '' }, originals.length ? 'Choose a clip…' : 'Your Library is empty'), ...originals.map((i) => el('option', { value: i.name, selected: i.name === preset.clip }, `${shortName(i.name)}${i.meta ? ` · ${resLabel(i.meta)}` : ''}`)));
+    } catch (e) { err.textContent = e.message; }
+  });
 }

@@ -78,6 +78,19 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
   const safeIn = (dir, name) => { const clean = basename(String(name || '')); const p = join(dir, clean); return clean && existsSync(p) ? p : null; };
   const originalOf = (post) => safeMedia(post.source) || (post.file && existsSync(post.file) ? post.file : null);
 
+  // Benchmarks: the same clips posted through different routes (Queue, the Instagram app, other
+  // schedulers), each scored against the original. Results live in quality.json with a benchmarkId.
+  const benchFile = join(dataDir, 'benchmarks.json');
+  const readBench = () => { try { return JSON.parse(readFileSync(benchFile, 'utf8')); } catch { return []; } };
+  const saveBench = (list) => { mkdirSync(dataDir, { recursive: true }); writeFileSync(benchFile, JSON.stringify(list, null, 1)); };
+  async function benchEntry(benchmarkId, clip, label, servedPath, extra = {}) {
+    const original = safeMedia(clip);
+    const result = await compare(original, servedPath);
+    const entry = { id: `b-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, benchmarkId, route: 'bench', label, platform: 'instagram', original: basename(original), served: basename(servedPath), at: new Date().toISOString(), result, ...extra };
+    saveQuality([...readQuality(), entry]);
+    return entry;
+  }
+
   async function measure(post) {
     const original = originalOf(post);
     if (!original) throw new Error('The original video is no longer in the Library.');
@@ -139,7 +152,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
-    const [, api, resource, id, action] = url.pathname.split('/');
+    const [, api, resource, id, action, sub] = url.pathname.split('/');
     if (!allowedHost(req.headers.host)) {
       res.writeHead(403);
       return res.end('Forbidden');
@@ -182,6 +195,67 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         let photos = [];
         if (demo?.assetsDir) try { photos = readdirSync(demo.assetsDir).filter((f) => /\.jpe?g$/i.test(f) && f !== demo.account.avatar).sort(); } catch {}
         return send(res, 200, demo ? { demo: true, account: demo.account, platforms: demo.platforms, photos } : { demo: false, account: null, platforms: null, photos: [] });
+      }
+
+      // Your recent Instagram posts (including ones made in other apps), to pick for a benchmark.
+      if (req.method === 'GET' && resource === 'instagram' && id === 'recent') {
+        if (demo || ig.dryRun) return send(res, 200, { media: [], reason: demo ? 'demo' : 'dryrun' });
+        const media = (await ig.recentMedia(24)).filter((m) => m.media_type === 'VIDEO' || m.media_type === 'REELS');
+        return send(res, 200, { media });
+      }
+
+      if (resource === 'benchmarks') {
+        if (req.method === 'GET' && !id) return send(res, 200, { benchmarks: readBench() });
+        if (req.method === 'POST' && !id) {
+          const { name } = await readJson(req);
+          const clean = String(name || '').trim().slice(0, 60);
+          if (!clean) return send(res, 400, { error: 'Give the benchmark a name.' });
+          const b = { id: `bm-${Date.now().toString(36)}`, name: clean, createdAt: new Date().toISOString() };
+          saveBench([...readBench(), b]);
+          return send(res, 200, { benchmark: b });
+        }
+        const bench = readBench().find((b) => b.id === id);
+        if (id && !bench) return send(res, 404, { error: 'No benchmark with that id.' });
+        if (req.method === 'DELETE' && id && !action) {
+          const gone = readQuality().filter((q) => q.benchmarkId === id);
+          for (const q of gone) { const f = safeIn(qualityDir, q.served); if (f) try { unlinkSync(f); } catch {} }
+          saveQuality(readQuality().filter((q) => q.benchmarkId !== id));
+          saveBench(readBench().filter((b) => b.id !== id));
+          return send(res, 200, { ok: true });
+        }
+        if (action === 'entries' && req.method === 'DELETE' && sub) {
+          const q = readQuality().find((x) => x.id === sub && x.benchmarkId === id);
+          if (!q) return send(res, 404, { error: 'No result with that id.' });
+          const f = safeIn(qualityDir, q.served); if (f) try { unlinkSync(f); } catch {}
+          saveQuality(readQuality().filter((x) => x.id !== sub));
+          return send(res, 200, { ok: true });
+        }
+        if (action === 'entries' && req.method === 'POST') {
+          // Either { clip, route, mediaId } as JSON (pulled from Instagram), or the downloaded
+          // video as the request body with ?clip=&route= (for posts Instagram won't hand over).
+          const isJson = (req.headers['content-type'] || '').includes('application/json');
+          const body = isJson ? await readJson(req) : null;
+          const clip = isJson ? body.clip : url.searchParams.get('clip');
+          const label = String((isJson ? body.route : url.searchParams.get('route')) || '').trim().slice(0, 40);
+          const file = safeMedia(clip);
+          if (!file || /\.(conformed|sdr)\.mp4$/.test(String(clip))) return send(res, 400, { error: 'Pick the original clip from your Library.' });
+          if (!label) return send(res, 400, { error: 'Name the route (for example "Instagram app" or "Buffer").' });
+          mkdirSync(qualityDir, { recursive: true });
+          const served = join(qualityDir, `bench-${Date.now().toString(36)}.mp4`);
+          let extra = {};
+          if (isJson) {
+            if (demo || ig.dryRun) return send(res, 400, { error: 'Connect Instagram to pull posts. You can upload the downloaded file instead.' });
+            if (!body.mediaId) return send(res, 400, { error: 'Pick a post.' });
+            const m = await ig.media(String(body.mediaId));
+            if (!m.media_url) return send(res, 400, { error: "Instagram didn't return a download link for that post. (It withholds it for Reels with licensed music.) Upload the file instead." });
+            copyFileSync(await download(m.media_url), served);
+            extra = { mediaId: String(body.mediaId), permalink: m.permalink || null };
+          } else {
+            await pipeline(req, createWriteStream(served));
+          }
+          try { return send(res, 200, { entry: await benchEntry(id, clip, label, served, extra) }); }
+          catch { try { unlinkSync(served); } catch {} return send(res, 400, { error: "Couldn't measure that file. Is it a readable video?" }); }
+        }
       }
 
       if (resource === 'quality') {

@@ -68,6 +68,11 @@ test('multi-platform video posts keep their platforms; TikTok lands in drafts', 
   assert.deepEqual(p.destinations.map((d) => d.status), ['posted', 'drafts']);
 });
 
+test('the demo has no Instagram to pull benchmark posts from', async () => {
+  const r = (await api('/api/instagram/recent')).body;
+  assert.deepEqual(r, { media: [], reason: 'demo' });
+});
+
 test('quality timeline buckets frames and finds the worst moment', () => {
   const frames = Array.from({ length: 300 }, (_, i) => ({ frameNum: i, metrics: { vmaf: i === 150 ? 70 : 95 } }));
   const { series, worstAt } = timeline(frames, 30, 50);

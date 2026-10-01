@@ -152,6 +152,25 @@ const MEASURE = [
   ['d16', 'coffee-bts.mp4', [['instagram', false], ['instagram', true]]],
 ];
 
+// A sample benchmark: three clips through five routes. The routes are SIMULATED stand-ins
+// (Scheduler A/B/C are not real products), but every score is a real VMAF measurement.
+const BENCH_CLIPS = ['marathon-wk6.mov', 'open-mic.mp4', 'q-and-a.mov'];
+const BENCH_ROUTES = {
+  // what each route does to the file before Instagram's own ~3.5 Mbps encode
+  Queue: (clip) => (clip === 'q-and-a.mov' ? ['-vf', "scale='min(1080,iw)':-2:flags=lanczos,format=yuv420p", '-c:v', 'libx264', '-profile:v', 'high', '-preset', 'slow', '-crf', '17'] : null),
+  'Instagram app': () => ['-vf', 'scale=720:-2,format=yuv420p', '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '2M', '-maxrate', '2.5M', '-bufsize', '5M'],
+  'Scheduler A': () => ['-vf', 'scale=1080:-2,format=yuv420p', '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '6M', '-maxrate', '7M', '-bufsize', '14M'],
+  'Scheduler B': () => ['-vf', 'scale=720:-2,format=yuv420p', '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '3M', '-maxrate', '3.5M', '-bufsize', '7M'],
+  'Scheduler C': () => null, // hands Instagram the original untouched
+};
+async function benchServe(src, out, route, clip) {
+  if (existsSync(out)) return;
+  const pre = BENCH_ROUTES[route](clip);
+  let input = src;
+  if (pre) { input = out.replace(/\.mp4$/, '.pre.mp4'); await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', src, ...pre, '-an', input], { maxBuffer: 1 << 24 }); }
+  await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', input, '-vf', 'scale=1080:1920,format=yuv420p', '-c:v', 'libx264', '-preset', 'medium', ...ROUTES.instagram, '-an', '-movflags', '+faststart', out], { maxBuffer: 1 << 24 });
+}
+
 export async function buildDemo(root, { log = console.log } = {}) {
   const dir = join(root, 'demo');
   const assets = join(dir, 'assets'); const media = join(dir, 'media'); const data = join(dir, 'data'); const qdir = join(data, 'quality');
@@ -178,9 +197,22 @@ export async function buildDemo(root, { log = console.log } = {}) {
     const result = await compare(join(media, j.file), join(qdir, served));
     fresh.push({ id: j.id, postId: j.postId, platform: j.platform, route: j.viaApp ? 'app' : 'queue', original: j.file, served, bytes: statSync(join(media, j.file)).size, result });
   });
-  const all = [...old.filter((q) => jobs.some((j) => j.id === q.id) && !fresh.some((f) => f.id === q.id)), ...fresh];
+  // The sample benchmark (cached like the measurements above).
+  const benchJobs = BENCH_CLIPS.flatMap((clip) => Object.keys(BENCH_ROUTES).map((route) => ({ clip, route, id: `bench-demo-${clip.replace(/\W+/g, '')}-${route.replace(/\W+/g, '').toLowerCase()}` })));
+  const benchTodo = benchJobs.filter((j) => !old.some((q) => q.id === j.id && q.bytes === statSync(join(media, j.clip)).size));
+  if (benchTodo.length) log(`  Running the sample benchmark: ${benchTodo.length} measurements (first run only)…`);
+  await pool(benchTodo, 2, async (j) => {
+    const served = `${j.id}.mp4`;
+    await benchServe(join(media, j.clip), join(qdir, served), j.route, j.clip);
+    const result = await compare(join(media, j.clip), join(qdir, served));
+    fresh.push({ id: j.id, benchmarkId: 'bm-demo', route: 'bench', label: j.route, platform: 'instagram', original: j.clip, served, bytes: statSync(join(media, j.clip)).size, at: new Date(Date.now() - 86400e3).toISOString(), result });
+  });
+  writeFileSync(join(data, 'benchmarks.json'), JSON.stringify([{ id: 'bm-demo', name: 'Launch benchmark', createdAt: new Date(Date.now() - 2 * 86400e3).toISOString(), note: 'Simulated routes: Scheduler A, B and C are stand-ins, not real products. Every score is a real VMAF measurement of the simulated file.' }], null, 1));
+
+  const keep = (q) => jobs.some((j) => j.id === q.id) || benchJobs.some((j) => j.id === q.id);
+  const all = [...old.filter((q) => keep(q) && !fresh.some((f) => f.id === q.id)), ...fresh];
   // Re-date measurements to just after each post went out.
-  for (const q of all) { const p = posts.find((x) => x.id === q.postId); q.at = p ? new Date(new Date(p.publishAt).getTime() + 5 * 60e3).toISOString() : q.at; }
+  for (const q of all) { if (q.benchmarkId) continue; const p = posts.find((x) => x.id === q.postId); q.at = p ? new Date(new Date(p.publishAt).getTime() + 5 * 60e3).toISOString() : q.at; }
   writeFileSync(qfile, JSON.stringify(all, null, 1));
   for (const p of posts) {
     const q = all.find((x) => x.postId === p.id && x.platform === 'instagram' && x.route === 'queue');
