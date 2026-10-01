@@ -57,7 +57,7 @@ function markMissed(post, { queue, notify, log, now }, tag, extra = {}) {
   const late = hours >= 1 ? `${hours}h` : 'over an hour';
   queue.update(post, { status: 'missed', error: `Missed its ${clock(post.publishAt)} slot by ${late} (Mac off or asleep). Post now, pick a new time, or remove it.`, ...extra }, `missed by ${late}`);
   log(`${tag} ⏰ missed its slot by ${late} — waiting for you`);
-  notify('Missed a post', `${snippet(post)} missed its ${clock(post.publishAt)} slot. Open Uncut to post now or reschedule.`);
+  notify('Missed a post', `${snippet(post)} missed its ${clock(post.publishAt)} slot. Open Queue to post now or reschedule.`);
 }
 
 async function markPublished(post, { queue, ig, log, notify }, tag, { mediaId = null, note }) {

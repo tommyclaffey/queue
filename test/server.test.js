@@ -29,7 +29,7 @@ after(async () => {
 });
 
 const api = async (path, opts = {}) => {
-  const res = await fetch(base + path, { ...opts, headers: { ...(opts.headers || {}), 'X-Uncut': '1' } });
+  const res = await fetch(base + path, { ...opts, headers: { ...(opts.headers || {}), 'X-Queue': '1' } });
   return { status: res.status, body: await res.json().catch(() => null) };
 };
 const json = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -118,7 +118,42 @@ test('cannot read files outside media/', async () => {
 test('serves the app page', async () => {
   const res = await fetch(base + '/');
   assert.equal(res.status, 200);
-  assert.match(await res.text(), /Uncut/);
+  assert.match(await res.text(), /Queue/);
+});
+
+test('serves the stylesheet and script, and nothing else from public/', async () => {
+  const css = await fetch(base + '/styles.css');
+  assert.equal(css.status, 200);
+  assert.match(css.headers.get('content-type'), /text\/css/);
+  const js = await fetch(base + '/app.js');
+  assert.equal(js.status, 200);
+  assert.match(js.headers.get('content-type'), /javascript/);
+  for (const p of ['/package.json', '/src/server.js', '/public/app.js', '/..%2Fpackage.json', '/.env']) {
+    assert.notEqual((await fetch(base + p)).status, 200, p);
+  }
+});
+
+test('library lists uploaded videos with the posts that use them', async () => {
+  const src = makeVideo(dir, 'lib.mp4');
+  const up = await upload(src, 'Library Clip.mp4');
+  await api('/api/schedule', json('POST', { name: up.body.name, at: new Date(Date.now() + 9e6).toISOString(), caption: 'lib test' }));
+  const { status, body } = await api('/api/media');
+  assert.equal(status, 200);
+  const item = body.items.find((i) => i.name === up.body.name);
+  assert.ok(item, 'upload is listed');
+  assert.ok(item.bytes > 0);
+  assert.equal(item.fixedCopy, false);
+  assert.equal(item.posts[0].caption, 'lib test');
+  assert.ok(!JSON.stringify(body).includes(dir), 'no local paths leak');
+});
+
+test('config reports the scheduler settings', async () => {
+  const { status, body } = await api('/api/config');
+  assert.equal(status, 200);
+  assert.equal(body.stageWindowMin, 120);
+  assert.equal(body.lateLimitMin, 120);
+  assert.equal(body.login, 'facebook');
+  assert.equal(typeof body.autostart, 'boolean');
 });
 
 test('🔒 other websites cannot use the API (CSRF + DNS rebinding)', async () => {
@@ -127,7 +162,7 @@ test('🔒 other websites cannot use the API (CSRF + DNS rebinding)', async () =
   let r = await fetch(base + '/api/schedule', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body });
   assert.equal(r.status, 403);
   // Header present but from another site
-  r = await fetch(base + '/api/schedule', { method: 'POST', headers: { 'X-Uncut': '1', Origin: 'https://evil.example' }, body });
+  r = await fetch(base + '/api/schedule', { method: 'POST', headers: { 'X-Queue': '1', Origin: 'https://evil.example' }, body });
   assert.equal(r.status, 403);
   // DNS rebinding: request arrives with a foreign Host
   const { request } = await import('node:http');

@@ -1,4 +1,4 @@
-# uncut
+# Queue — social media scheduler
 
 Schedule Instagram Reels **without wrecking the video quality.**
 
@@ -6,7 +6,7 @@ Schedule Instagram Reels **without wrecking the video quality.**
 
 Instagram re-encodes every upload, whatever tool you post from. What wrecks quality is
 **feeding it a bad file**: 4K, HDR, high bitrate, the wrong codec, or a file some
-scheduler already compressed before it got to Instagram. So uncut:
+scheduler already compressed before it got to Instagram. So Queue:
 
 1. **Checks** the file against Meta's Reels spec
 2. **Fixes it the least destructive way:** lossless rewrap < audio-only fix < one clean re-encode
@@ -28,24 +28,24 @@ npm start                    # → http://localhost:4400
 npm run doctor               # checks your Meta connection
 ```
 
-Meta account setup, click by click: vault note **"(C) Uncut — Meta Setup Guide"**.
+Meta account setup, click by click: vault note **"(C) Queue — Meta Setup Guide"**.
 
 ## Commands
 
 ```bash
-node bin/uncut.js check <video>
-node bin/uncut.js add <video> --at "2026-10-02 18:30" --caption "..." [--cover 2.5]
-node bin/uncut.js list | remove <id> | retry <id> | post-now <id>
-node bin/uncut.js autostart on | off | status
-node bin/uncut.js storage [--clear]
-node bin/uncut.js run                               # scheduler without the web app
-node bin/uncut.js doctor [--tunnel]
-node bin/uncut.js compare <original> <posted-file>  # VMAF / SSIM / PSNR
-node bin/uncut.js compare <original> --latest       # vs. your newest Instagram post
-node bin/uncut.js compare <original> --post <id>    # vs. a post uncut made
+node bin/queue.js check <video>
+node bin/queue.js add <video> --at "2026-10-02 18:30" --caption "..." [--cover 2.5]
+node bin/queue.js list | remove <id> | retry <id> | post-now <id>
+node bin/queue.js autostart on | off | status
+node bin/queue.js storage [--clear]
+node bin/queue.js run                               # scheduler without the web app
+node bin/queue.js doctor [--tunnel]
+node bin/queue.js compare <original> <posted-file>  # VMAF / SSIM / PSNR
+node bin/queue.js compare <original> --latest       # vs. your newest Instagram post
+node bin/queue.js compare <original> --post <id>    # vs. a post Queue made
 ```
 
-**Security:** the web app only answers `localhost`. Changes need an `X-Uncut` header and a local `Origin`,
+**Security:** the web app only answers `localhost`. Changes need an `X-Queue` header and a local `Origin`,
 which blocks other websites (CSRF and DNS rebinding). Temporary-link keys never reach the browser.
 The link server serves only shared files, closes links when they're no longer needed (3h max), and
 can't be crashed by malformed requests.
@@ -55,10 +55,10 @@ can't be crashed by malformed requests.
 
 **Notifications** (macOS): posted, failed, missed. `NOTIFY=0` turns them off.
 
-**Autostart** (off by default): `node bin/uncut.js autostart on` installs a LaunchAgent that starts
-uncut at login and restarts it after a crash. `autostart off` removes it. Log: `data/uncut.log`.
+**Autostart** (off by default): `node bin/queue.js autostart on` installs a LaunchAgent that starts
+Queue at login and restarts it after a crash. `autostart off` removes it. Log: `data/queue.log`.
 
-**Storage:** uncut keeps its own copies of videos in `media/`. `node bin/uncut.js storage [--clear]`
+**Storage:** Queue keeps its own copies of videos in `media/`. `node bin/queue.js storage [--clear]`
 (or **Clear** in the web app) deletes copies of posted Reels and uploads never scheduled. It never
 touches anything still waiting to post, or your originals.
 
@@ -106,7 +106,7 @@ npm test     # 68 tests, ~45s
 ## Layout
 
 ```
-bin/uncut.js      CLI entry
+bin/queue.js      CLI entry
 src/config.js     .env → ready objects
 src/specs.js      Instagram Reels spec
 src/probe.js      ffprobe + moov-atom check

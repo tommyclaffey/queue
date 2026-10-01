@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-export const tmp = () => mkdtempSync(join(tmpdir(), 'uncut-test-'));
+export const tmp = () => mkdtempSync(join(tmpdir(), 'queue-test-'));
 export const cleanup = (dir) => rmSync(dir, { recursive: true, force: true });
 export const sha = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
 

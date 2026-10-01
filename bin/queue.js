@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// uncut — schedule Instagram Reels without wrecking video quality.
+// Queue — schedule Instagram Reels without wrecking video quality.
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -86,14 +86,14 @@ const { values: opt, positionals: pos } = parseArgs({
 try {
   switch (cmd) {
     case 'check': {
-      if (!pos[0]) throw new Error('Usage: uncut check <video>');
+      if (!pos[0]) throw new Error('Usage: queue check <video>');
       report(resolve(pos[0]));
       break;
     }
 
     case 'add': {
       const file = pos[0] && resolve(pos[0]);
-      if (!file || !opt.at) throw new Error('Usage: uncut add <video> --at "2026-10-02 18:30" --caption "..." [--cover 2.5]');
+      if (!file || !opt.at) throw new Error('Usage: queue add <video> --at "2026-10-02 18:30" --caption "..." [--cover 2.5]');
       // "2026-10-02" alone would be read as UTC midnight (the evening before, in the US). Use local.
       const when = new Date(/^\d{4}-\d{2}-\d{2}$/.test(opt.at.trim()) ? `${opt.at.trim()}T00:00` : opt.at);
       if (isNaN(when)) throw new Error(`Can't read the date "${opt.at}". Try "2026-10-02 18:30".`);
@@ -138,11 +138,11 @@ try {
     case 'storage': {
       const mediaDir = join(ROOT, 'media');
       const { summary } = mediaReport(mediaDir, cfg.queue.posts);
-      console.log(`\n  Uncut's video copies: ${human(summary.totalBytes)}`);
+      console.log(`\n  Queue's video copies: ${human(summary.totalBytes)}`);
       console.log(`  Clearable: ${human(summary.clearable.bytes)} — ${summary.posted.count} from posted Reels, ${summary.unused.count} uploaded but never scheduled`);
       if (!opt.clear) {
-        if (summary.clearable.count) console.log('\n  To clear them: node bin/uncut.js storage --clear');
-        console.log("  (Only Uncut's own copies in ~/Coding/uncut/media. Your originals are never touched.)\n");
+        if (summary.clearable.count) console.log('\n  To clear them: node bin/queue.js storage --clear');
+        console.log("  (Only Queue's own copies in ~/Coding/uncut/media. Your originals are never touched.)\n");
         break;
       }
       const r = clearMedia(mediaDir, cfg.queue);
@@ -159,20 +159,20 @@ try {
         if (existsSync(lockFile) && !autostart.isLoaded()) {
           try {
             process.kill(Number(readFileSync(lockFile, 'utf8')), 0);
-            throw new Error('Uncut is running in a Terminal window. Close it first (Ctrl+C), then run this again.');
+            throw new Error('Queue is running in a Terminal window. Close it first (Ctrl+C), then run this again.');
           } catch (e) {
             if (e.code !== 'ESRCH') throw e;
           }
         }
         autostart.enable(ROOT);
-        console.log(`\n✅ Autostart is ON. Uncut is running in the background now, and will start`);
+        console.log(`\n✅ Autostart is ON. Queue is running in the background now, and will start`);
         console.log(`   by itself whenever you log in. Open http://localhost:${cfg.port}`);
-        console.log(`   Log: ~/Coding/uncut/data/uncut.log   ·   To turn off: node bin/uncut.js autostart off\n`);
+        console.log(`   Log: ~/Coding/uncut/data/queue.log   ·   To turn off: node bin/queue.js autostart off\n`);
       } else if (action === 'off') {
         autostart.disable();
-        console.log('\n⏹  Autostart is OFF. Uncut is stopped and won\'t start at login.\n   Run it by hand any time with: npm start\n');
+        console.log('\n⏹  Autostart is OFF. Queue is stopped and won\'t start at login.\n   Run it by hand any time with: npm start\n');
       } else {
-        console.log(autostart.isLoaded() ? `\n✅ Autostart is ON — running in the background. http://localhost:${cfg.port}\n` : '\n⏹  Autostart is OFF. Turn on with: node bin/uncut.js autostart on\n');
+        console.log(autostart.isLoaded() ? `\n✅ Autostart is ON — running in the background. http://localhost:${cfg.port}\n` : '\n⏹  Autostart is OFF. Turn on with: node bin/queue.js autostart on\n');
       }
       break;
     }
@@ -214,12 +214,12 @@ try {
       const app = startServer({ root: ROOT, ...cfg });
       app.server.on('error', (err) => {
         console.error(err.code === 'EADDRINUSE'
-          ? `\n❌ Port ${cfg.port} is already in use — Uncut (or something else) is already running.\n   Open http://localhost:${cfg.port} or close the other window.\n`
+          ? `\n❌ Port ${cfg.port} is already in use — Queue (or something else) is already running.\n   Open http://localhost:${cfg.port} or close the other window.\n`
           : `\n❌ ${err.message}\n`);
         process.exit(1);
       });
       app.ready.then(() => {
-        console.log(`\n  Uncut is running →  http://localhost:${cfg.port}`);
+        console.log(`\n  Queue is running →  http://localhost:${cfg.port}`);
         console.log(ig.dryRun ? '  🧪 DRY RUN: nothing will actually post.' : `  🟢 LIVE: ${ig.login} login, ${ig.uploadMode} upload`);
         console.log('  The scheduler runs while this window is open. The Mac won\'t idle-sleep meanwhile');
         console.log('  (closing the lid still sleeps it).\n');
@@ -230,7 +230,7 @@ try {
     case 'doctor': {
       const { ig, tokens } = cfg;
       const row = (ok, label, fix) => console.log(`  ${ok === null ? '➖' : ok ? '✅' : '❌'} ${label}${!ok && fix ? `\n       → ${fix}` : ''}`);
-      console.log('\nUncut — setup check\n');
+      console.log('\nQueue — setup check\n');
       row(hasFfmpeg(), 'ffmpeg installed', 'brew install ffmpeg');
       row(existsSync(join(ROOT, '.env')), '.env file exists', 'cp .env.example .env');
       row(!!ig.token, 'Access token set', 'Paste the token from the Meta dashboard into IG_ACCESS_TOKEN in .env');
@@ -268,12 +268,12 @@ try {
     }
 
     case 'compare': {
-      // uncut compare <original> <downloaded>        — two local files
-      // uncut compare <original> --post <queue-id>   — fetch what Uncut posted
-      // uncut compare <original> --latest            — fetch your newest Instagram post (e.g. one made in the app)
+      // queue compare <original> <downloaded>        — two local files
+      // queue compare <original> --post <queue-id>   — fetch what Queue posted
+      // queue compare <original> --latest            — fetch your newest Instagram post (e.g. one made in the app)
       needFfmpeg();
       const original = pos[0] && resolve(pos[0]);
-      if (!original) throw new Error('Usage: uncut compare <original> (<posted-file> | --post <id> | --latest)');
+      if (!original) throw new Error('Usage: queue compare <original> (<posted-file> | --post <id> | --latest)');
       let posted = pos[1] && resolve(pos[1]);
       if (!posted) {
         let mediaUrl;
@@ -299,28 +299,28 @@ try {
     }
 
     default:
-      console.log(`uncut — schedule Instagram Reels without wrecking quality
+      console.log(`Queue — social media scheduler that keeps your video quality
 
   Web app
     npm start                                          open http://localhost:4400
 
   Commands
-    uncut check <video>                                inspect a file against Instagram's spec
-    uncut add <video> --at "YYYY-MM-DD HH:MM" [--caption "..."] [--cover <seconds>]
-    uncut list | remove <id> | retry <id> | post-now <id>
-    uncut storage [--clear]                            space used by Uncut's video copies
-    uncut autostart on | off | status                  run in the background & start at login
-    uncut run                                          scheduler only, no web app
-    uncut doctor [--tunnel]                            check your Meta connection
-    uncut compare <original> <posted-file>             measure quality loss
-    uncut compare <original> --post <id> | --latest    …downloading the posted version from Instagram`);
+    queue check <video>                                inspect a file against Instagram's spec
+    queue add <video> --at "YYYY-MM-DD HH:MM" [--caption "..."] [--cover <seconds>]
+    queue list | remove <id> | retry <id> | post-now <id>
+    queue storage [--clear]                            space used by Queue's video copies
+    queue autostart on | off | status                  run in the background & start at login
+    queue run                                          scheduler only, no web app
+    queue doctor [--tunnel]                            check your Meta connection
+    queue compare <original> <posted-file>             measure quality loss
+    queue compare <original> --post <id> | --latest    …downloading the posted version from Instagram`);
   }
 } catch (err) {
   if (/already running/.test(err.message) && autostart.isLoaded()) {
-    console.error(`\n✅ Uncut is already running in the background (autostart is on).\n   Open http://localhost:${cfg.port}\n`);
+    console.error(`\n✅ Queue is already running in the background (autostart is on).\n   Open http://localhost:${cfg.port}\n`);
     process.exit(0);
   }
   console.error(`\n❌ ${err.message}\n`);
   // Under launchd a clean exit stops it from endlessly retrying a duplicate start.
-  process.exit(process.env.UNCUT_LAUNCHD === '1' && /already running/.test(err.message) ? 0 : 1);
+  process.exit(process.env.QUEUE_LAUNCHD === '1' && /already running/.test(err.message) ? 0 : 1);
 }

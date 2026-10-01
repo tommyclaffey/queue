@@ -12,8 +12,11 @@ import { conformAsync } from './conform.js';
 import { hasCloudflared } from './fileshare.js';
 import { tick } from './worker.js';
 import { mediaReport, clearMedia } from './storage.js';
+import { readdirSync, statSync } from 'node:fs';
+import { isLoaded as autostartOn } from './autostart.js';
 
-const TYPES = { '.html': 'text/html', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/mp4' };
+const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/mp4' };
+const PUBLIC_FILES = new Set(['index.html', 'styles.css', 'app.js']);
 
 export function startServer({ root, queue, ig, files = null, tokens = null, port = 4400, stageWindowMin = 120, lateLimitMin = 120, notify = () => {}, log = console.log, tickMs = 30_000, mediaDir = join(root, 'media') }) {
   mkdirSync(mediaDir, { recursive: true });
@@ -77,13 +80,15 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       res.writeHead(403);
       return res.end('Forbidden');
     }
-    if (req.method !== 'GET' && (req.headers['x-uncut'] !== '1' || !allowedOrigin(req.headers.origin))) {
+    if (req.method !== 'GET' && (req.headers['x-queue'] !== '1' || !allowedOrigin(req.headers.origin))) {
       return send(res, 403, { error: 'Forbidden' });
     }
     try {
-      if (req.method === 'GET' && url.pathname === '/') {
-        res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });
-        return createReadStream(join(root, 'public', 'index.html')).pipe(res);
+      // The app itself: a fixed allowlist of files, never arbitrary paths.
+      if (req.method === 'GET' && (url.pathname === '/' || PUBLIC_FILES.has(url.pathname.slice(1)))) {
+        const name = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
+        res.writeHead(200, { 'Content-Type': TYPES[extname(name)] + '; charset=utf-8', 'Cache-Control': 'no-store' });
+        return createReadStream(join(root, 'public', name)).pipe(res);
       }
 
       // Video preview, with range support so the <video> tag can seek.
@@ -106,6 +111,24 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
           accountError,
           tokenDaysLeft: tokens?.daysLeft() ?? null,
         });
+      }
+
+      // Library: every video copy Queue holds, and which post (if any) uses it.
+      if (req.method === 'GET' && resource === 'media') {
+        const stem = (n) => n.replace(/\.(conformed|sdr)\.mp4$/, '').replace(/\.[^.]+$/, '');
+        const users = new Map();
+        for (const p of queue.posts) { if (!p.file) continue; const k = stem(basename(p.file)); if (!users.has(k)) users.set(k, []); users.get(k).push({ id: p.id, status: p.status, publishAt: p.publishAt, caption: p.caption }); }
+        let files = [];
+        try { files = readdirSync(mediaDir).filter((f) => !f.startsWith('.') && /\.(mp4|mov|m4v)$/i.test(f)); } catch {}
+        const items = files.flatMap((name) => { let st; try { st = statSync(join(mediaDir, name)); } catch { return []; } return [{ name, bytes: st.size, modified: st.mtime.toISOString(), fixedCopy: /\.(conformed|sdr)\.mp4$/.test(name), posts: users.get(stem(name)) || [] }]; })
+          .sort((a, b) => b.modified.localeCompare(a.modified));
+        return send(res, 200, { items });
+      }
+
+      // Settings (read-only for now — values come from .env).
+      if (req.method === 'GET' && resource === 'config') {
+        let autostart = false; try { autostart = autostartOn(); } catch {}
+        return send(res, 200, { stageWindowMin, lateLimitMin, notify: process.env.NOTIFY !== '0', login: ig.login, uploadMode: ig.uploadMode, autostart, graphVersion: ig.version });
       }
 
       if (resource === 'storage') {

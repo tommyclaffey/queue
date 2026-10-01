@@ -8,6 +8,6 @@ const as = (s) => `"${String(s).replace(/[\r\n]+/g, ' ').replace(/\\/g, '\\\\').
 export function makeNotifier({ enabled = process.platform === 'darwin' && process.env.NOTIFY !== '0' } = {}) {
   if (!enabled) return () => {};
   return (title, message) => {
-    execFile('osascript', ['-e', `display notification ${as(message)} with title "Uncut" subtitle ${as(title)}`], () => {});
+    execFile('osascript', ['-e', `display notification ${as(message)} with title "Queue" subtitle ${as(title)}`], () => {});
   };
 }

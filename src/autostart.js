@@ -1,13 +1,13 @@
-// Start Uncut automatically when you log in, and restart it if it ever crashes.
+// Start Queue automatically when you log in, and restart it if it ever crashes.
 // Uses a macOS LaunchAgent (the standard way apps run in the background). Off until you run
-// `uncut autostart on`; `uncut autostart off` removes it completely.
+// `queue autostart on`; `queue autostart off` removes it completely.
 import { writeFileSync, existsSync, unlinkSync, statSync, readFileSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { homedir, userInfo } from 'node:os';
 import { join } from 'node:path';
 
-// UNCUT_LABEL only exists so tests can install a throwaway copy without touching the real one.
-export const LABEL = process.env.UNCUT_LABEL || 'com.uncut.scheduler';
+// QUEUE_LABEL only exists so tests can install a throwaway copy without touching the real one.
+export const LABEL = process.env.QUEUE_LABEL || 'com.queue.scheduler';
 
 // Homebrew's stable link survives `brew upgrade node`; the versioned Cellar path would not.
 const stableNode = () => ['/opt/homebrew/bin/node', '/usr/local/bin/node'].find((p) => existsSync(p)) || process.execPath;
@@ -17,7 +17,7 @@ const domain = () => `gui/${userInfo().uid}`;
 const xml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 export function buildPlist(root, nodePath = stableNode()) {
-  const log = join(root, 'data', 'uncut.log');
+  const log = join(root, 'data', 'queue.log');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -26,14 +26,14 @@ export function buildPlist(root, nodePath = stableNode()) {
   <key>ProgramArguments</key>
   <array>
     <string>${xml(nodePath)}</string>
-    <string>${xml(join(root, 'bin', 'uncut.js'))}</string>
+    <string>${xml(join(root, 'bin', 'queue.js'))}</string>
     <string>serve</string>
   </array>
   <key>WorkingDirectory</key><string>${xml(root)}</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-    <key>UNCUT_LAUNCHD</key><string>1</string>
+    <key>QUEUE_LAUNCHD</key><string>1</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <!-- Restart after a crash, but not after a clean exit (e.g. "already running"). -->
@@ -72,7 +72,7 @@ export function disable() {
 
 // Keep the background log from growing forever: over 5 MB → keep the last 1 MB.
 export function trimLog(root) {
-  const log = join(root, 'data', 'uncut.log');
+  const log = join(root, 'data', 'queue.log');
   try {
     if (statSync(log).size > 5e6) {
       const buf = readFileSync(log);

@@ -1,4 +1,4 @@
-// Uncut keeps its OWN copies of videos in media/ (the upload copy, plus any fixed version).
+// Queue keeps its OWN copies of videos in media/ (the upload copy, plus any fixed version).
 // This reports what's using space and — only when you ask — clears copies that are done with.
 // Never touches anything outside media/, and never touches a post that hasn't gone out yet.
 import { readdirSync, statSync, unlinkSync } from 'node:fs';
@@ -70,7 +70,7 @@ export function clearMedia(mediaDir, queue) {
   const gone = new Set(report.posted.map((f) => stem(f.name)));
   for (const p of queue.posts) {
     if (p.status === 'published' && p.file && gone.has(stem(basename(p.file))) && !p.fileCleared) {
-      queue.update(p, { fileCleared: true }, "Uncut's copy of the video cleared to save space");
+      queue.update(p, { fileCleared: true }, "Queue's copy of the video cleared to save space");
     }
   }
   return { count, bytes };

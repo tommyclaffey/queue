@@ -1,15 +1,15 @@
 {
-  "name": "uncut",
+  "name": "queue-scheduler",
   "version": "0.1.0",
-  "description": "Schedule Instagram Reels without wrecking video quality.",
+  "description": "Queue \u2014 social media scheduler that keeps your video quality.",
   "type": "module",
   "bin": {
-    "uncut": "bin/uncut.js"
+    "queue": "bin/queue.js"
   },
   "scripts": {
-    "start": "node bin/uncut.js serve",
+    "start": "node bin/queue.js serve",
     "test": "node --test test/*.test.js",
-    "doctor": "node bin/uncut.js doctor"
+    "doctor": "node bin/queue.js doctor"
   },
   "engines": {
     "node": ">=22"

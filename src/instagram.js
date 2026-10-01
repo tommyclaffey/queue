@@ -111,7 +111,7 @@ export class InstagramClient {
     throw lastErr;
   }
 
-  // Who am I connected as? Used by `uncut doctor` and the web app header.
+  // Who am I connected as? Used by `queue doctor` and the web app header.
   async account() {
     if (this.dryRun) return { id: 'dry', username: 'dry-run' };
     const fields = this.login === 'instagram' ? 'user_id,username,account_type' : 'id,username';

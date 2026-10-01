@@ -16,7 +16,7 @@ export function acquireLock(path) {
   if (existsSync(path)) {
     const pid = Number(readFileSync(path, 'utf8'));
     if (pid && pid !== process.pid && alive(pid))
-      throw new Error(`Uncut is already running in another Terminal window (process ${pid}). Close that one first.`);
+      throw new Error(`Queue is already running in another Terminal window (process ${pid}). Close that one first.`);
   }
   writeFileSync(path, String(process.pid));
   const release = () => {

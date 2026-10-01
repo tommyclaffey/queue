@@ -30,7 +30,7 @@ export async function compare(originalPath, postedPath) {
   const [w, h] = portrait ? [1080, 1920] : [1920, 1080];
   const fps = Math.round(dist.video.fps || 30);
 
-  const dir = mkdtempSync(join(tmpdir(), 'uncut-q-'));
+  const dir = mkdtempSync(join(tmpdir(), 'queue-q-'));
   const logPath = join(dir, 'vmaf.json');
   const prep = `scale=${w}:${h}:force_original_aspect_ratio=decrease:flags=bicubic,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,fps=${fps},setpts=PTS-STARTPTS,format=yuv420p`;
   try {
@@ -69,7 +69,7 @@ const describe = (i) => ({
 export async function download(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
-  const dir = mkdtempSync(join(tmpdir(), 'uncut-dl-'));
+  const dir = mkdtempSync(join(tmpdir(), 'queue-dl-'));
   const out = join(dir, 'posted.mp4');
   await pipeline(Readable.fromWeb(res.body), createWriteStream(out));
   return out;
