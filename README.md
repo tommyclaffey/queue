@@ -30,6 +30,22 @@ npm run doctor               # checks your Meta connection
 
 Meta account setup, click by click: vault note **"(C) Queue — Meta Setup Guide"**.
 
+## Demo account
+
+```bash
+npm run demo                 # → http://localhost:4401
+```
+
+A separate, fully populated account for showing Queue off: 17 sample videos (Ken Burns clips made from
+Unsplash photos), ~18 posts in every state (scheduled, sending, ready, posted, missed, failed), five
+"connected" platforms, photo carousels and stories, and **real VMAF scores**: each posted clip is
+re-encoded the way the platform would serve it, then measured with the same code as `compare`.
+
+- Lives in `demo/` (git-ignored). Never touches your real queue, media or login, and never posts anything
+- First run takes a few minutes (renders the videos, measures quality). After that it starts instantly
+- Dates are refreshed on every start, so "Today" is always today
+- The real app stays honest: Instagram only, everything else "Coming soon"
+
 ## Commands
 
 ```bash
@@ -85,7 +101,7 @@ Only one scheduler runs at a time (`data/scheduler.lock`). While it runs, the Ma
 ## Tests
 
 ```bash
-npm test     # 68 tests, ~45s
+npm test     # 78 tests, ~60s
 ```
 
 - `test/mock-meta.js` is a strict fake of Meta's Graph + rupload APIs, built from Meta's docs. It checks
@@ -122,7 +138,10 @@ src/notify.js     macOS notifications
 src/storage.js    media copy report + cleanup
 src/autostart.js  LaunchAgent (start at login)
 src/range.js      crash-proof HTTP range/file streaming
-src/quality.js    VMAF comparison
+src/quality.js    VMAF comparison + per-moment timeline
+src/demo.js       builds the demo account (npm run demo)
 src/server.js     localhost web app + API
-public/index.html the UI
+public/index.html the UI shell
+public/app.js     core UI: dashboard, queue, calendar, library, accounts, settings
+public/pages.js   post detail, Quality Lab, onboarding, composer (video, photos, story)
 ```

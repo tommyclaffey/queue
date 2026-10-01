@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node bin/queue.js serve",
     "test": "node --test test/*.test.js",
-    "doctor": "node bin/queue.js doctor"
+    "doctor": "node bin/queue.js doctor",
+    "demo": "node bin/queue.js demo"
   },
   "engines": {
     "node": ">=22"

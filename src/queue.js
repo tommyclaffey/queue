@@ -43,7 +43,7 @@ export class Queue {
     this.#mtime = mine;
   }
 
-  add({ file, caption = '', publishAt, coverOffsetMs = null, platform = 'instagram_reels' }) {
+  add({ file, caption = '', publishAt, coverOffsetMs = null, platform = 'instagram_reels', fix = null, source = null, kind = 'reel', images = null, platforms = ['instagram'], destinations = null }) {
     this.#load();
     const post = {
       id: randomUUID().slice(0, 8),
@@ -51,6 +51,12 @@ export class Queue {
       file,
       caption,
       coverOffsetMs,
+      fix, // which fix Queue applied: none | remux | audio-only | reencode | hdr
+      source, // the original upload in media/ this copy was made from
+      kind, // reel | photos | story (photos and stories exist in the demo only, so far)
+      platforms,
+      ...(images ? { images } : {}),
+      ...(destinations ? { destinations } : {}),
       publishAt: new Date(publishAt).toISOString(),
       status: 'queued',
       containerId: null,

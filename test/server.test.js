@@ -128,7 +128,8 @@ test('serves the stylesheet and script, and nothing else from public/', async ()
   const js = await fetch(base + '/app.js');
   assert.equal(js.status, 200);
   assert.match(js.headers.get('content-type'), /javascript/);
-  for (const p of ['/package.json', '/src/server.js', '/public/app.js', '/..%2Fpackage.json', '/.env']) {
+  assert.equal((await fetch(base + '/pages.js')).status, 200);
+  for (const p of ['/package.json', '/src/server.js', '/public/app.js', '/..%2Fpackage.json', '/.env', '/quality-media/..%2F..%2Fpackage.json', '/demo-assets/avatar.jpg']) {
     assert.notEqual((await fetch(base + p)).status, 200, p);
   }
 });
@@ -145,6 +146,55 @@ test('library lists uploaded videos with the posts that use them', async () => {
   assert.equal(item.fixedCopy, false);
   assert.equal(item.posts[0].caption, 'lib test');
   assert.ok(!JSON.stringify(body).includes(dir), 'no local paths leak');
+});
+
+test('library and queue carry video details; a Library video reopens in the composer', async () => {
+  const src = makeVideo(dir, 'details.mov', { faststart: false });
+  const up = await upload(src, 'Details Clip.mov');
+  // Listed with size, length and what it needs before it's ever scheduled.
+  const listed = (await api('/api/media')).body.items.find((i) => i.name === up.body.name);
+  assert.ok(listed.meta.width > 0 && listed.meta.durationSec > 0);
+  assert.equal(listed.meta.plan, 'remux');
+  assert.equal(listed.meta.needsTrim, false);
+  // Reopening it gives the composer the same check as a fresh upload.
+  const again = await api(`/api/media/${encodeURIComponent(up.body.name)}`);
+  assert.equal(again.status, 200);
+  assert.equal(again.body.name, up.body.name);
+  assert.equal(again.body.result.plan, 'remux');
+  // The post remembers which fix was applied and where it came from.
+  const s = await api('/api/schedule', json('POST', { name: up.body.name, at: new Date(Date.now() + 9e6).toISOString(), caption: 'details' }));
+  const post = (await api('/api/queue')).body.posts.find((p) => p.id === s.body.post.id);
+  assert.equal(post.fix, 'remux');
+  assert.equal(post.source, up.body.name);
+  assert.ok(post.meta.width > 0);
+  // Unknown names, Queue's own fixed copies, and paths outside media/ can't be reopened.
+  assert.equal((await api('/api/media/nope.mov')).status, 404);
+  assert.equal((await api(`/api/media/${encodeURIComponent(post.media)}`)).status, 404);
+  assert.equal((await api('/api/media/..%2F..%2Fpackage.json')).status, 404);
+});
+
+test('status reports when the scheduler checks next', async () => {
+  const { body } = await api('/api/status');
+  assert.ok(new Date(body.nextCheckAt) > Date.now() - 1000);
+  assert.equal(body.tickMs, 150);
+});
+
+test('the real app is not the demo: no fake accounts, no demo posts, honest quality list', async () => {
+  const ex = await api('/api/extras');
+  assert.equal(ex.body.demo, false);
+  assert.equal(ex.body.platforms, null);
+  assert.equal((await api('/api/status')).body.demo, undefined);
+  assert.equal((await api('/api/demo/post', json('POST', { kind: 'photos', images: ['a.jpg'], at: new Date(Date.now() + 9e6).toISOString() }))).status, 404);
+  const q = await api('/api/quality');
+  assert.ok(Array.isArray(q.body.comparisons));
+  // Measuring something that never posted is refused, not faked.
+  const src = makeVideo(dir, 'unposted.mp4');
+  const up = await upload(src, 'Unposted.mp4');
+  const s = await api('/api/schedule', json('POST', { name: up.body.name, at: new Date(Date.now() + 9e6).toISOString(), caption: 'later' }));
+  const m = await api(`/api/quality/${s.body.post.id}/measure`, { method: 'POST' });
+  assert.equal(m.status, 400);
+  assert.match(m.body.error, /not been published/);
+  assert.deepEqual(s.body.post.platforms, ['instagram'], 'real posts only ever go to Instagram');
 });
 
 test('config reports the scheduler settings', async () => {

@@ -14,11 +14,15 @@ import { tick } from './worker.js';
 import { mediaReport, clearMedia } from './storage.js';
 import { readdirSync, statSync } from 'node:fs';
 import { isLoaded as autostartOn } from './autostart.js';
+import { compare, download } from './quality.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { readFileSync, writeFileSync, copyFileSync } from 'node:fs';
 
-const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/mp4' };
-const PUBLIC_FILES = new Set(['index.html', 'styles.css', 'app.js']);
+const TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/mp4' };
+const PUBLIC_FILES = new Set(['index.html', 'styles.css', 'app.js', 'pages.js']);
 
-export function startServer({ root, queue, ig, files = null, tokens = null, port = 4400, stageWindowMin = 120, lateLimitMin = 120, notify = () => {}, log = console.log, tickMs = 30_000, mediaDir = join(root, 'media') }) {
+export function startServer({ root, queue, ig, files = null, tokens = null, port = 4400, stageWindowMin = 120, lateLimitMin = 120, notify = () => {}, log = console.log, tickMs = 30_000, mediaDir = join(root, 'media'), dataDir = join(root, 'data'), demo = null }) {
   mkdirSync(mediaDir, { recursive: true });
   let account = null;
   let accountError = null;
@@ -38,10 +42,70 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
     const p = join(mediaDir, clean);
     return clean && existsSync(p) ? p : null;
   };
+  // ffprobe is ~50 ms a file, so cache by path + size + mtime. The Library and Queue lists
+  // ask for every file on every refresh.
+  const probeCache = new Map();
   const summarize = (file) => {
+    const st = statSync(file);
+    const key = `${file}|${st.size}|${st.mtimeMs}`;
+    if (probeCache.has(key)) return probeCache.get(key);
     const info = probe(file);
-    return { info, result: preflight(info, SPEC) };
+    const out = { info, result: preflight(info, SPEC) };
+    if (probeCache.size > 500) probeCache.clear();
+    probeCache.set(key, out);
+    return out;
   };
+  // A small, safe description of a video for lists. Never throws.
+  const metaOf = (file) => {
+    try {
+      if (!file || !existsSync(file)) return null;
+      const { info, result } = summarize(file);
+      const v = info.video || {};
+      return {
+        width: v.width, height: v.height, durationSec: info.durationSec, bytes: info.bytes,
+        hdr: ['arib-std-b67', 'smpte2084'].includes(v.colorTransfer),
+        plan: result.plan, needsTrim: !!result.needsTrim,
+      };
+    } catch { return null; }
+  };
+  let nextCheckAt = null;
+
+  // Quality measurements (VMAF etc.), saved so the Quality Lab and post pages can show them.
+  const qualityDir = join(dataDir, 'quality');
+  const qualityFile = join(dataDir, 'quality.json');
+  const readQuality = () => { try { return JSON.parse(readFileSync(qualityFile, 'utf8')); } catch { return []; } };
+  const saveQuality = (list) => { mkdirSync(dataDir, { recursive: true }); writeFileSync(qualityFile, JSON.stringify(list, null, 1)); };
+  const safeIn = (dir, name) => { const clean = basename(String(name || '')); const p = join(dir, clean); return clean && existsSync(p) ? p : null; };
+  const originalOf = (post) => safeMedia(post.source) || (post.file && existsSync(post.file) ? post.file : null);
+
+  async function measure(post) {
+    const original = originalOf(post);
+    if (!original) throw new Error('The original video is no longer in the Library.');
+    const list = readQuality();
+    const id = `${post.id}-instagram`;
+    let served = safeIn(qualityDir, `${id}.mp4`);
+    if (demo && !served) {
+      // The demo has no Instagram to download from, so it makes the copy Instagram would serve:
+      // one 1080-wide encode at Instagram's ~3.5 Mbps.
+      mkdirSync(qualityDir, { recursive: true });
+      served = join(qualityDir, `${id}.mp4`);
+      await promisify(execFile)('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', original, '-vf', 'scale=1080:1920,format=yuv420p', '-c:v', 'libx264', '-preset', 'medium', '-b:v', '3.5M', '-maxrate', '4M', '-bufsize', '8M', '-an', '-movflags', '+faststart', served], { maxBuffer: 1 << 24 });
+    }
+    if (!demo) {
+      if (!post.mediaId) throw new Error('That post has not been published yet.');
+      const url = (await ig.media(post.mediaId)).media_url;
+      if (!url) throw new Error("Instagram didn't return a download link. (It withholds it for Reels with licensed music.)");
+      const tmp = await download(url);
+      mkdirSync(qualityDir, { recursive: true });
+      served = join(qualityDir, `${id}.mp4`);
+      copyFileSync(tmp, served);
+    }
+    const result = await compare(original, served);
+    const entry = { id, postId: post.id, platform: 'instagram', route: 'queue', original: basename(original), served: basename(served), at: new Date().toISOString(), result };
+    saveQuality([...list.filter((q) => q.id !== id), entry]);
+    queue.update(post, {}, `quality measured: VMAF ${result.vmaf}`);
+    return entry;
+  }
   const validTime = (at) => {
     const when = new Date(at);
     if (isNaN(when)) throw new Error('Pick a date and time.');
@@ -98,9 +162,50 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         return sendFile(req, res, file, TYPES[extname(file).toLowerCase()] || 'application/octet-stream');
       }
 
+      // Served copies kept by quality measurements, for the side-by-side viewer.
+      if (req.method === 'GET' && url.pathname.startsWith('/quality-media/')) {
+        const file = safeIn(qualityDir, decodeURIComponent(url.pathname.slice(15)));
+        if (!file) return send(res, 404, { error: 'not found' });
+        return sendFile(req, res, file, 'video/mp4');
+      }
+      // Demo photos (avatar, carousel and story frames). Only exists in the demo.
+      if (req.method === 'GET' && url.pathname.startsWith('/demo-assets/') && demo?.assetsDir) {
+        const file = safeIn(demo.assetsDir, decodeURIComponent(url.pathname.slice(13)));
+        if (!file || !/\.(jpe?g|png)$/i.test(file)) return send(res, 404, { error: 'not found' });
+        return sendFile(req, res, file, TYPES[extname(file).toLowerCase()]);
+      }
+
       if (api !== 'api') return send(res, 404, { error: 'not found' });
 
+      // What the demo pretends is connected. The real app only knows Instagram.
+      if (req.method === 'GET' && resource === 'extras') {
+        let photos = [];
+        if (demo?.assetsDir) try { photos = readdirSync(demo.assetsDir).filter((f) => /\.jpe?g$/i.test(f) && f !== demo.account.avatar).sort(); } catch {}
+        return send(res, 200, demo ? { demo: true, account: demo.account, platforms: demo.platforms, photos } : { demo: false, account: null, platforms: null, photos: [] });
+      }
+
+      if (resource === 'quality') {
+        if (req.method === 'GET' && !id) return send(res, 200, { comparisons: readQuality() });
+        if (req.method === 'POST' && id && action === 'measure') {
+          const post = queue.get(id);
+          if (!post) return send(res, 404, { error: 'No post with that id.' });
+          return send(res, 200, { comparison: await measure(post) });
+        }
+      }
+
+      // Photo carousels and stories: the demo shows the flow; the real scheduler can't post them yet.
+      if (req.method === 'POST' && resource === 'demo' && id === 'post') {
+        if (!demo) return send(res, 404, { error: 'not found' });
+        const { kind, images = [], caption = '', at, platforms = ['instagram'] } = await readJson(req);
+        if (!['photos', 'story'].includes(kind)) return send(res, 400, { error: 'Unknown post type.' });
+        const imgs = images.map((n) => basename(String(n))).filter((n) => safeIn(demo.assetsDir, n));
+        if (!imgs.length) return send(res, 400, { error: 'Pick at least one photo.' });
+        const post = queue.add({ file: null, caption, publishAt: validTime(at), kind, images: imgs, platforms, destinations: platforms.map((p) => ({ platform: p, format: kind === 'story' ? 'Story' : 'Carousel', status: 'queued' })) });
+        return send(res, 200, { post });
+      }
+
       if (req.method === 'GET' && resource === 'status') {
+        if (demo) return send(res, 200, { demo: true, dryRun: false, login: 'instagram', uploadMode: 'url', ffmpeg: hasFfmpeg(), cloudflared: true, account: demo.account.username, accountError: null, tokenDaysLeft: 54, nextCheckAt, tickMs });
         return send(res, 200, {
           dryRun: ig.dryRun,
           login: ig.login,
@@ -110,17 +215,28 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
           account: account?.username || null,
           accountError,
           tokenDaysLeft: tokens?.daysLeft() ?? null,
+          nextCheckAt,
+          tickMs,
         });
       }
 
       // Library: every video copy Queue holds, and which post (if any) uses it.
+      // One video's full check, so the composer can reopen something already in the Library.
+      if (req.method === 'GET' && resource === 'media' && id) {
+        const name = basename(decodeURIComponent(id));
+        const file = safeMedia(name);
+        if (!file || /\.(conformed|sdr)\.mp4$/.test(name)) return send(res, 404, { error: 'That video is no longer in the Library.' });
+        try { const { info, result } = summarize(file); return send(res, 200, { name, info, result }); }
+        catch { return send(res, 400, { error: "That file isn't a readable video." }); }
+      }
+
       if (req.method === 'GET' && resource === 'media') {
         const stem = (n) => n.replace(/\.(conformed|sdr)\.mp4$/, '').replace(/\.[^.]+$/, '');
         const users = new Map();
-        for (const p of queue.posts) { if (!p.file) continue; const k = stem(basename(p.file)); if (!users.has(k)) users.set(k, []); users.get(k).push({ id: p.id, status: p.status, publishAt: p.publishAt, caption: p.caption }); }
+        for (const p of queue.posts) { if (!p.file) continue; const k = stem(p.source || basename(p.file)); if (!users.has(k)) users.set(k, []); users.get(k).push({ id: p.id, status: p.status, publishAt: p.publishAt, caption: p.caption }); }
         let files = [];
         try { files = readdirSync(mediaDir).filter((f) => !f.startsWith('.') && /\.(mp4|mov|m4v)$/i.test(f)); } catch {}
-        const items = files.flatMap((name) => { let st; try { st = statSync(join(mediaDir, name)); } catch { return []; } return [{ name, bytes: st.size, modified: st.mtime.toISOString(), fixedCopy: /\.(conformed|sdr)\.mp4$/.test(name), posts: users.get(stem(name)) || [] }]; })
+        const items = files.flatMap((name) => { let st; try { st = statSync(join(mediaDir, name)); } catch { return []; } return [{ name, bytes: st.size, modified: st.mtime.toISOString(), fixedCopy: /\.(conformed|sdr)\.mp4$/.test(name), posts: users.get(stem(name)) || [], meta: /\.(conformed|sdr)\.mp4$/.test(name) ? null : metaOf(join(mediaDir, name)) }]; })
           .sort((a, b) => b.modified.localeCompare(a.modified));
         return send(res, 200, { items });
       }
@@ -151,7 +267,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       }
 
       if (req.method === 'POST' && resource === 'schedule') {
-        const { name, at, caption = '', coverOffsetMs } = await readJson(req);
+        const { name, at, caption = '', coverOffsetMs, platforms } = await readJson(req);
         const file = safeMedia(name);
         if (!file) return send(res, 400, { error: 'Upload the video first.' });
         const when = validTime(at);
@@ -164,7 +280,9 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         const recheck = preflight(probe(ready), SPEC);
         if (!recheck.ok) return send(res, 400, { error: 'Still failing after the fix: ' + recheck.issues.map((i) => i.msg).join('; ') });
 
-        const post = queue.add({ file: ready, caption, publishAt: when, coverOffsetMs: cover });
+        const FORMAT = { instagram: 'Reel', youtubeshorts: 'Short', tiktok: 'Video', facebook: 'Reel', linkedin: 'Video' };
+        const dests = demo && Array.isArray(platforms) && platforms.length ? platforms.filter((p) => FORMAT[p]) : ['instagram'];
+        const post = queue.add({ file: ready, caption, publishAt: when, coverOffsetMs: cover, fix: result.plan, source: basename(file), platforms: dests, destinations: dests.map((p) => ({ platform: p, format: FORMAT[p], status: 'queued' })) });
         return send(res, 200, { post: { ...post, shareToken: undefined }, fixed: result.plan });
       }
 
@@ -173,7 +291,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
           const posts = [...queue.posts]
             .sort((a, b) => a.publishAt.localeCompare(b.publishAt))
             // shareToken is a live public link key — it never leaves the server.
-            .map(({ log: _log, shareToken: _t, ...p }) => ({ ...p, media: basename(p.file), lastLog: _log?.at(-1)?.msg || null }));
+            .map(({ log: _log, shareToken: _t, ...p }) => ({ ...p, media: p.file ? basename(p.file) : null, meta: metaOf(p.file), lastLog: _log?.at(-1)?.msg || null }));
           return send(res, 200, { posts });
         }
         if (req.method === 'PATCH' && id) {
@@ -222,6 +340,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
   server.listen(port, '127.0.0.1');
 
   const loop = async () => {
+    nextCheckAt = new Date(Date.now() + tickMs).toISOString();
     try {
       if (tokens) await tokens.maybeRefresh(ig, { log });
       await tick(queue, ig, { files, stageWindowMin, lateLimitMin, notify, log });
@@ -229,9 +348,25 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       log(`scheduler error: ${err.message}`);
     }
   };
-  refreshAccount();
-  loop();
-  const timers = [setInterval(loop, tickMs), setInterval(refreshAccount, 30 * 60_000)];
+  // The demo never talks to Instagram. Its "scheduler" just marks posts as posted when
+  // their time comes (or straight away after Post now / Retry), so the flow can be tried.
+  const demoTick = () => {
+    nextCheckAt = new Date(Date.now() + tickMs).toISOString();
+    for (const p of queue.posts) {
+      const due = new Date(p.publishAt) <= Date.now() || p.allowLate;
+      if (!['queued', 'staged', 'ready'].includes(p.status) || !due) continue;
+      const done = new Date().toISOString();
+      queue.update(p, { status: 'published', publishedAt: done, permalink: 'https://www.instagram.com/', mediaId: `demo${p.id}`, error: null, allowLate: false,
+        destinations: (p.destinations || []).map((d) => ({ ...d, status: d.platform === 'tiktok' ? 'drafts' : 'posted' })) }, `published demo${p.id} (${Math.max(0, Math.round((Date.now() - new Date(p.publishAt)) / 1000))}s after target)`);
+    }
+  };
+  let timers;
+  if (demo) { demoTick(); timers = [setInterval(demoTick, tickMs)]; }
+  else {
+    refreshAccount();
+    loop();
+    timers = [setInterval(loop, tickMs), setInterval(refreshAccount, 30 * 60_000)];
+  }
 
   return {
     server,

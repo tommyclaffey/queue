@@ -17,6 +17,9 @@ import { compare, download } from '../src/quality.js';
 import { acquireLock } from '../src/lock.js';
 import { mediaReport, clearMedia, human } from '../src/storage.js';
 import * as autostart from '../src/autostart.js';
+import { buildDemo } from '../src/demo.js';
+import { Queue } from '../src/queue.js';
+import { InstagramClient } from '../src/instagram.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cfg = loadConfig(ROOT);
@@ -223,6 +226,32 @@ try {
         console.log(ig.dryRun ? '  🧪 DRY RUN: nothing will actually post.' : `  🟢 LIVE: ${ig.login} login, ${ig.uploadMode} upload`);
         console.log('  The scheduler runs while this window is open. The Mac won\'t idle-sleep meanwhile');
         console.log('  (closing the lid still sleeps it).\n');
+      });
+      break;
+    }
+
+    case 'demo': {
+      // A separate demo account with sample content: never touches your real queue, media or login.
+      needFfmpeg();
+      const port = Number(process.env.DEMO_PORT || 4401);
+      console.log('\n  Building the demo account…');
+      const { media, data } = await buildDemo(ROOT);
+      const extras = JSON.parse(readFileSync(join(data, 'demo.json'), 'utf8'));
+      const app = startServer({
+        root: ROOT, mediaDir: media, dataDir: data, port, tickMs: 5000,
+        queue: new Queue(join(data, 'queue.json')),
+        ig: new InstagramClient({ login: 'instagram', dryRun: true }),
+        demo: { ...extras, assetsDir: join(ROOT, 'demo', 'assets') },
+        notify: () => {}, log: () => {},
+      });
+      app.server.on('error', (err) => {
+        console.error(err.code === 'EADDRINUSE' ? `\n❌ Port ${port} is already in use. The demo may already be running: http://localhost:${port}\n` : `\n❌ ${err.message}\n`);
+        process.exit(1);
+      });
+      app.ready.then(() => {
+        console.log(`\n  Queue demo →  http://localhost:${port}`);
+        console.log('  🎭 Sample account and content. Nothing here ever posts anywhere.');
+        console.log('  Dates refresh every time you start it. Ctrl+C to stop.\n');
       });
       break;
     }

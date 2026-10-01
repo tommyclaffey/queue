@@ -40,11 +40,15 @@ export async function compare(originalPath, postedPath) {
       '-lavfi', `[0:v]${prep}[d];[1:v]${prep}[r];[d][r]libvmaf=log_fmt=json:log_path=${logPath}:n_threads=4:feature=name=psnr|name=float_ssim:shortest=1`,
       '-f', 'null', '-',
     ], { maxBuffer: 16 * 1024 * 1024 });
-    const pooled = JSON.parse(readFileSync(logPath, 'utf8')).pooled_metrics;
+    const log = JSON.parse(readFileSync(logPath, 'utf8'));
+    const pooled = log.pooled_metrics;
     const vmaf = pooled.vmaf;
+    const { series, worstAt } = timeline(log.frames || [], fps);
     return {
       vmaf: round(vmaf.mean),
       vmafWorst: round(vmaf.min),
+      worstAt,
+      series,
       ssim: round(pooled.float_ssim?.mean, 4),
       psnr: round(pooled.psnr_y?.mean),
       verdict: verdict(vmaf.mean),
@@ -54,6 +58,22 @@ export async function compare(originalPath, postedPath) {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+// Per-frame VMAF, averaged into at most `points` buckets so the app can draw it.
+// worstAt is the time (seconds) of the single worst frame.
+export function timeline(frames, fps, points = 96) {
+  if (!frames.length) return { series: [], worstAt: null };
+  let worst = frames[0];
+  for (const f of frames) if (f.metrics.vmaf < worst.metrics.vmaf) worst = f;
+  const per = Math.max(1, Math.ceil(frames.length / points));
+  const series = [];
+  for (let i = 0; i < frames.length; i += per) {
+    const chunk = frames.slice(i, i + per);
+    const mean = chunk.reduce((a, f) => a + f.metrics.vmaf, 0) / chunk.length;
+    series.push({ t: round(chunk[0].frameNum / fps, 2), vmaf: round(mean) });
+  }
+  return { series, worstAt: round(worst.frameNum / fps, 2) };
 }
 
 const round = (n, d = 1) => (n == null ? null : Number(n.toFixed(d)));

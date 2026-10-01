@@ -40,6 +40,8 @@ const P = {
   briefcase: '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
   remix: '<circle cx="8" cy="12" r="5"/><circle cx="16" cy="12" r="5"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
   chevL: '<path d="m15 18-6-6 6-6"/>', chevR: '<path d="m9 18 6-6-6-6"/>',
   external: '<path d="M7 17 17 7M8 7h9v9"/>',
 };
@@ -110,6 +112,38 @@ const toTimeInput = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.
 const fromInputs = (date, time) => (date && time ? new Date(`${date}T${time}`) : null);
 const tz = Intl.DateTimeFormat().resolvedOptions().timeZone.replace('_', ' ');
 const countdown = (d) => { const m = Math.round((d - Date.now()) / 60000); if (m < 0) return 'now'; if (m < 60) return `in ${m}m`; const h = Math.floor(m / 60); return h < 48 ? `in ${h}h ${m % 60}m` : `in ${Math.round(h / 24)} days`; };
+const fmtDur = (sec) => { const s = Math.round(sec || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+// "4K HDR", "1080p" — named by the short side, so vertical and horizontal read the same.
+function resLabel(m) {
+  if (!m?.width) return '';
+  const short = Math.min(m.width, m.height);
+  const name = short >= 2160 ? '4K' : short >= 1440 ? '1440p' : `${short}p`;
+  return m.hdr ? `${name} HDR` : name;
+}
+const FIX_TEXT = { none: 'no fixes needed', remux: 'lossless rewrap', 'audio-only': 'audio fix only', reencode: 'one clean encode', hdr: 'HDR → SDR + encode' };
+const USUAL_TIMES = [['12:00', '12:00 PM'], ['18:30', '6:30 PM'], ['21:00', '9:00 PM']];
+const USUAL_DEFAULT = '18:30';
+const shortName = (n) => n.replace(/^\d+-/, '');
+
+// A small popover menu anchored to a button. items: [label, onClick, { danger }]
+function menu(anchor, items) {
+  closeMenu();
+  const r = anchor.getBoundingClientRect();
+  const m = el('div', { class: 'menu', role: 'menu' }, ...items.filter(Boolean).map(([label, fn, o = {}]) => el('button', { class: o.danger ? 'danger' : '', role: 'menuitem', on: { click: () => { closeMenu(); fn(); } } }, label)));
+  document.body.append(m);
+  const w = m.offsetWidth;
+  m.style.top = `${Math.min(r.bottom + 6, innerHeight - m.offsetHeight - 8)}px`;
+  m.style.left = `${Math.max(8, r.right - w)}px`;
+  setTimeout(() => { document.addEventListener('click', closeMenu, { once: true }); document.addEventListener('keydown', menuEsc); });
+}
+function closeMenu() { document.querySelectorAll('.menu').forEach((n) => n.remove()); document.removeEventListener('keydown', menuEsc); }
+function menuEsc(e) { if (e.key === 'Escape') closeMenu(); }
+const moreBtn = (items, label = 'More actions') => { const b = el('button', { class: 'btn ghost small icon-only', type: 'button', 'aria-label': label, html: svgIcon('more') }); b.addEventListener('click', (e) => { e.stopPropagation(); menu(b, items()); }); return b; };
+function searchBox(value, onInput, placeholder) {
+  const i = el('input', { class: 'input', type: 'search', placeholder, value });
+  i.addEventListener('input', () => onInput(i.value));
+  return el('label', { class: 'search' }, icon('search'), i);
+}
 
 async function api(path, opts = {}) {
   opts.headers = { ...(opts.headers || {}), 'X-Queue': '1' };
@@ -156,7 +190,23 @@ function statusOf(p) {
 const pill = (s) => el('span', { class: `pill ${s}` }, `${GLYPH[s]} ${STATUS[s]}`);
 const needsYou = (p) => ['missed', 'failed'].includes(statusOf(p));
 const upcoming = (p) => ['scheduled', 'sending', 'ready', 'retrying'].includes(statusOf(p));
+const isDemo = () => !!S.extras?.demo;
+const PNAME = { instagram: 'Instagram', youtubeshorts: 'YouTube Shorts', youtube: 'YouTube', tiktok: 'TikTok', facebook: 'Facebook', linkedin: 'LinkedIn', threads: 'Threads', pinterest: 'Pinterest', bluesky: 'Bluesky', x: 'X' };
+const platformsOf = (p) => (p.platforms?.length ? p.platforms : ['instagram']);
+const platformStack = (p) => el('span', { class: 'pstack' }, ...platformsOf(p).map((x) => badge(x, true)));
+// What each account is: the demo pretends five are connected; the real app only knows Instagram.
+function accountState(id) {
+  const key = id === 'youtubeshorts' ? 'youtube' : id;
+  if (isDemo()) return S.extras.platforms?.[key]?.state || 'available';
+  if (key !== 'instagram') return 'soon';
+  const st = S.status; return st?.dryRun ? 'dryrun' : st?.account ? 'connected' : 'problem';
+}
+const comparisonsFor = (postId) => S.quality.filter((q) => q.postId === postId);
+const vmafOf = (p, platform = 'instagram') => S.quality.find((q) => q.postId === p.id && q.platform === platform && q.route === 'queue')?.result.vmaf ?? null;
+const postTitle = (p) => p.caption || (p.images?.length ? (p.kind === 'story' ? `Story · ${p.images.length} frames` : `Carousel · ${p.images.length} photos`) : '(no caption)');
+const imgUrl = (n) => `/demo-assets/${encodeURIComponent(n)}`;
 function thumb(p, cls = 'thumb') {
+  if (p.images?.length) return el('img', { class: cls, src: imgUrl(p.images[0]), alt: '' });
   const v = el('video', { class: cls, muted: true, playsInline: true, preload: 'metadata', src: p.media ? `/media/${encodeURIComponent(p.media)}#t=0.8` : '' });
   v.muted = true;
   return v;
@@ -171,54 +221,94 @@ const FRIENDLY = [
 const friendly = (msg) => { for (const [re, out] of FRIENDLY) { const m = re.exec(msg); if (m) return typeof out === 'function' ? out(m) : out; } return msg; };
 
 // ---------------------------------------------------------------- data
-const S = { status: null, posts: [], storage: null, config: null };
+const S = { status: null, posts: [], storage: null, config: null, extras: null, quality: [] };
 const mins = (m) => (m % 60 ? `${m} minutes` : `${m / 60} hour${m === 60 ? '' : 's'}`);
 const lateLimit = () => mins(S.config?.lateLimitMin ?? 120);
 async function load() {
-  const [status, q, storage, config] = await Promise.all([api('/api/status'), api('/api/queue'), api('/api/storage').catch(() => null), S.config ? null : api('/api/config').catch(() => null)]);
-  S.status = status; S.posts = q.posts; S.storage = storage; if (config) S.config = config;
+  const [status, q, storage, config, extras, quality] = await Promise.all([api('/api/status'), api('/api/queue'), api('/api/storage').catch(() => null), S.config ? null : api('/api/config').catch(() => null), S.extras ? null : api('/api/extras').catch(() => null), api('/api/quality').catch(() => null)]);
+  S.status = status; S.posts = q.posts; S.storage = storage; if (config) S.config = config; if (extras) S.extras = extras; if (quality) S.quality = quality.comparisons;
   renderChrome();
 }
 
 // ---------------------------------------------------------------- chrome
 const NAV = [['dashboard', 'Dashboard', 'dashboard'], ['calendar', 'Calendar', 'calendar'], ['queue', 'Queue', 'queue'], ['library', 'Library', 'library'], ['quality', 'Quality', 'quality'], ['accounts', 'Accounts', 'accounts'], ['settings', 'Settings', 'settings']];
 const handle = () => (S.status?.account && !S.status.dryRun ? `@${S.status.account}` : S.status?.dryRun ? 'Dry run' : 'Not connected');
+// ---------------------------------------------------------------- theme
+// One click flips Light ↔ Dark (handy for checking content against both). Settings still offers "System".
+const effectiveTheme = () => document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+function setTheme(t) {
+  if (t === 'system') { localStorage.removeItem('queue-theme'); delete document.documentElement.dataset.theme; }
+  else { localStorage.setItem('queue-theme', t); document.documentElement.dataset.theme = t; }
+  drawThemeBtn();
+}
+function drawThemeBtn() {
+  const b = $('#themeBtn'); if (!b) return;
+  const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+  b.innerHTML = svgIcon(next === 'dark' ? 'moon' : 'sun');
+  b.title = b.ariaLabel = `Switch to ${next} mode`;
+}
+$('#themeBtn').addEventListener('click', () => { setTheme(effectiveTheme() === 'dark' ? 'light' : 'dark'); if (currentRoute() === 'settings') render(); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawThemeBtn);
+drawThemeBtn();
+
 function renderChrome() {
   const route = currentRoute();
   const nNeed = S.posts.filter(needsYou).length;
-  $('#nav').replaceChildren(...NAV.map(([id, label, ic]) => el('a', { href: `#/${id}`, class: route === id ? 'active' : '' }, icon(ic), label, id === 'queue' && nNeed ? el('span', { class: 'count' }, String(nNeed)) : null)));
+  $('#nav').replaceChildren(...NAV.map(([id, label, ic]) => el('a', { href: `#/${id}`, class: (route === 'post' ? 'queue' : route) === id ? 'active' : '' }, icon(ic), label, id === 'queue' && nNeed ? el('span', { class: 'count' }, String(nNeed)) : null)));
   const st = S.status;
   const live = st && !st.dryRun && st.account;
-  $('#account').replaceChildren(
-    el('div', { class: 'avatar' }, live ? st.account.slice(0, 1).toUpperCase() : 'Q'),
+  const acct = $('#account');
+  acct.onclick = live ? null : () => (location.hash = '#/welcome');
+  acct.classList.toggle('clickable', !live);
+  acct.title = live ? '' : 'Connect Instagram';
+  $('#demoTag')?.classList.toggle('hidden', !isDemo());
+  acct.replaceChildren(...[
+    S.extras?.account?.avatar ? el('img', { class: 'avatar', src: imgUrl(S.extras.account.avatar), alt: '' }) : el('div', { class: 'avatar' }, live ? st.account.slice(0, 1).toUpperCase() : 'Q'),
     el('div', { class: 'who' }, el('b', {}, live ? `@${st.account}` : 'Not connected'), el('div', { class: 'small muted row', style: 'gap:5px' }, el('span', { class: 'dot ' + (live ? 'ok' : st?.accountError ? 'bad' : 'warn') }), live ? 'Instagram · Live' : st?.accountError ? 'Connection problem' : 'Dry run — nothing posts')),
-  );
+    live ? null : el('span', { class: 'ico faint', html: svgIcon('chevR') }),
+  ].filter(Boolean));
   const used = S.storage?.totalBytes || 0;
   $('#heartbeat').replaceChildren(
     el('div', { class: 'row' }, el('span', { class: 'dot ok', style: 'width:8px;height:8px' }), 'Scheduler running'),
-    el('div', { class: 'small faint' }, st?.dryRun ? 'Dry run · checks every 30s' : 'Live · checks every 30s'),
+    el('div', { class: 'small faint mono', id: 'nextCheck' }, nextCheckText()),
     el('div', { class: 'bar' }, el('span', { style: `width:${Math.min(100, (used / 5e9) * 100)}%` })),
     el('div', { class: 'small faint' }, `${fmtBytes(used)} of video copies`),
   );
   $('#newPostBtn').classList.toggle('active', route === 'new');
   $('#newPostBtn').querySelector('.ico').innerHTML = svgIcon('plus');
 }
+function nextCheckText() {
+  const st = S.status; if (!st) return '';
+  const left = st.nextCheckAt ? Math.max(0, Math.round((new Date(st.nextCheckAt) - Date.now()) / 1000)) : null;
+  const mode = st.dryRun ? 'Dry run' : 'Mac awake';
+  return left == null ? `${mode} · checks every 30s` : `${mode} · next check 0:${String(left % 60).padStart(2, '0')}`;
+}
+setInterval(() => {
+  const n = document.getElementById('nextCheck'); if (!n || !S.status) return;
+  // The server checks every tickMs; roll the countdown forward locally between refreshes.
+  const st = S.status; const ms = st.tickMs || 30000;
+  if (st.nextCheckAt) while (new Date(st.nextCheckAt) < Date.now() - 500) st.nextCheckAt = new Date(new Date(st.nextCheckAt).getTime() + ms).toISOString();
+  n.textContent = nextCheckText();
+}, 1000);
 function topbar(title, subtitle, actions = []) {
   $('#topbar').replaceChildren(el('div', { class: 'title' }, el('h1', { class: 'h1' }, title), subtitle ? el('div', { class: 'muted' }, subtitle) : null), ...actions);
 }
 
 // ---------------------------------------------------------------- router
 const currentRoute = () => (location.hash.replace(/^#\//, '').split('/')[0] || 'dashboard');
+const routeParam = () => decodeURIComponent(location.hash.replace(/^#\//, '').split('/')[1] || '');
+const BARE = new Set(['welcome', 'setup']); // full-screen onboarding, no sidebar
 const VIEWS = {};
 async function render() {
   const r = currentRoute();
   renderChrome();
   const view = VIEWS[r] || VIEWS.dashboard;
   const content = $('#content');
+  document.querySelector('.app').classList.toggle('bare', BARE.has(r));
   content.replaceChildren();
-  await view(content);
+  await view(content, routeParam());
 }
-window.addEventListener('hashchange', () => { render(); $('#content').scrollTop = 0; });
+window.addEventListener('hashchange', () => { closeMenu(); if (settingsSpy && currentRoute() !== 'settings') { $('#content').removeEventListener('scroll', settingsSpy); settingsSpy = null; } render(); $('#content').scrollTop = 0; });
 
 // ================================================================ DASHBOARD
 VIEWS.dashboard = (c) => {
@@ -229,11 +319,13 @@ VIEWS.dashboard = (c) => {
   const week = up.filter((p) => new Date(p.publishAt) - now < 7 * DAY);
   const need = S.posts.filter(needsYou);
   const posted7 = S.posts.filter((p) => statusOf(p) === 'posted' && now - new Date(p.publishedAt || p.publishAt) < 7 * DAY);
-  topbar(greet, `${now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })} · ${week.length} post${week.length === 1 ? '' : 's'} going out this week`, [btn('Open calendar', 'secondary', () => (location.hash = '#/calendar'))]);
+  const nPlat = new Set(week.flatMap(platformsOf)).size;
+  const first = S.extras?.account?.name?.split(' ')[0];
+  topbar(first ? `${greet}, ${first}` : greet, `${now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })} · ${week.length} post${week.length === 1 ? '' : 's'} going out this week${nPlat > 1 ? ` across ${nPlat} platforms` : ''}`, [btn('Run quality test', 'secondary', () => (location.hash = '#/quality')), btn('Open calendar', 'secondary', () => (location.hash = '#/calendar'))]);
   const next = up[0];
   const kpi = (label, value, sub, cls = '') => el('div', { class: 'card kpi' }, el('div', { class: 'label' }, label), el('div', { class: 'data ' + cls }, value), el('div', { class: 'small muted' }, sub));
   const nextCard = el('div', { class: 'card kpi row', style: 'gap:12px' }, next ? thumb(next, 'thumb') : null, el('div', {}, el('div', { class: 'label' }, 'Next post'), el('div', { class: 'data' }, next ? fmtTime(new Date(next.publishAt)) : '—'), el('div', { class: 'small muted' }, next ? `${fmtDay(new Date(next.publishAt))} · ${countdown(new Date(next.publishAt))}` : 'Nothing scheduled')));
-  c.append(el('div', { class: 'grid kpis' }, nextCard, kpi('Scheduled', String(week.length), 'Next 7 days'), kpi('Needs you', String(need.length), need.length ? `${need.filter((p) => statusOf(p) === 'missed').length} missed · ${need.filter((p) => statusOf(p) === 'failed').length} failed` : 'All clear', need.length ? 'warn' : ''), kpi('Posted', String(posted7.length), 'Last 7 days')));
+  c.append(el('div', { class: 'grid kpis' }, nextCard, kpi('Scheduled', String(week.length), 'Next 7 days'), kpi('Needs you', String(need.length), need.length ? `${need.filter((p) => statusOf(p) === 'missed').length} missed · ${need.filter((p) => statusOf(p) === 'failed').length} failed` : 'All clear', need.length ? 'warn' : ''), qualityKpi(kpi, posted7)));
 
   const main = el('div', { class: 'grid dash-main', style: 'margin-top:16px' });
   // Up next
@@ -243,7 +335,7 @@ VIEWS.dashboard = (c) => {
   for (const p of up.slice(0, 7)) {
     const d = new Date(p.publishAt); const day = fmtDay(d);
     if (day !== lastDay) { upCard.append(el('div', { class: 'upnext-day label' }, day)); lastDay = day; }
-    upCard.append(el('div', { class: 'upnext-row' }, el('div', { class: 'time' }, fmtTime(d)), thumb(p), el('div', { class: 'cap' }, p.caption || '(no caption)'), el('span', { class: 'pstack' }, badge('instagram', true)), pill(statusOf(p)), btn('Edit', 'ghost', () => editPost(p))));
+    upCard.append(el('div', { class: 'upnext-row clickable', on: { click: (e) => { if (!e.target.closest('button')) openPost(p); } } }, el('div', { class: 'time' }, fmtTime(d)), thumb(p), el('div', { class: 'cap' }, postTitle(p)), platformStack(p), pill(statusOf(p)), btn('Edit', 'ghost', () => editPost(p))));
   }
   // Right column
   const right = el('div', { class: 'stack' });
@@ -251,14 +343,14 @@ VIEWS.dashboard = (c) => {
   if (!need.length) att.append(el('div', { class: 'muted small' }, 'Nothing needs you. Missed or failed posts will show up here with a one-click fix.'));
   for (const p of need) {
     const s = statusOf(p);
-    att.append(el('div', { class: 'attn' }, el('div', { class: 'row' }, el('b', { style: 'flex:1;font-weight:500' }, p.caption?.slice(0, 40) || '(no caption)'), pill(s)), el('div', { class: 'small muted' }, p.error || ''), el('div', { class: 'row' }, s === 'missed' ? btn('Post now', 'primary small', () => missedDecision(p)) : btn('Retry', 'secondary small', () => retry(p)), btn('History', 'ghost small', () => history(p)))));
+    att.append(el('div', { class: 'attn' }, el('div', { class: 'row' }, el('b', { style: 'flex:1;font-weight:500' }, p.caption?.slice(0, 40) || '(no caption)'), pill(s)), el('div', { class: 'small muted' }, p.error || ''), el('div', { class: 'row' }, s === 'missed' ? btn('Post now', 'primary small', () => missedDecision(p)) : btn('Retry', 'secondary small', () => retry(p)), s === 'missed' ? btn('Reschedule', 'ghost small', () => missedDecision(p, 'later')) : btn('Details', 'ghost small', () => history(p)))));
   }
   const st = S.status;
   const health = el('div', { class: 'card stack', style: 'gap:6px' }, el('h2', { class: 'h3', style: 'margin-bottom:4px' }, 'Health'));
+  const HEALTH = { connected: ['Connected', 'success'], drafts: ['Drafts only', 'warning'], available: ['Not connected', 'text-tertiary'], paid: ['Pay per post', 'info'], soon: ['Coming soon', 'text-tertiary'], dryrun: ['Dry run', 'warning'], problem: ['Problem', 'danger'] };
   const hrow = (logo, k, v, cls) => el('div', { class: 'kv' }, logo ? badge(logo, true) : null, el('span', { class: 'k' }, k), el('b', { style: `font-weight:500;color:var(--${cls || 'text-primary'})` }, v));
   health.append(
-    hrow('instagram', 'Instagram', st?.dryRun ? 'Dry run' : st?.account ? 'Connected' : 'Problem', st?.dryRun ? 'warning' : st?.account ? 'success' : 'danger'),
-    ...['youtube', 'tiktok', 'facebook', 'linkedin'].map((p) => hrow(p, PLATFORMS.find((x) => x.id === p).name, 'Coming soon', 'text-tertiary')),
+    ...['instagram', 'youtube', 'facebook', 'tiktok', 'linkedin'].map((p) => { const [t, c] = HEALTH[accountState(p)]; const note = isDemo() && S.extras.platforms[p]?.note; return hrow(p, PLATFORMS.find((x) => x.id === p).name, note || t, note ? 'text-secondary' : c); }),
     el('div', { class: 'divider', style: 'margin:6px 0' }),
     hrow(null, 'Video tools', st?.ffmpeg ? 'Ready' : 'Missing ffmpeg', st?.ffmpeg ? 'success' : 'danger'),
     hrow(null, 'Login key', st?.tokenDaysLeft != null ? `${st.tokenDaysLeft} days left` : st?.dryRun ? '—' : 'Renews itself'),
@@ -266,38 +358,146 @@ VIEWS.dashboard = (c) => {
   right.append(att, health);
   main.append(upCard, right);
   c.append(main);
+  const chart = qualityChart();
+  if (chart) c.append(chart);
 };
+function qualityKpi(kpi, posted7) {
+  const ours = S.quality.filter((q) => q.platform === 'instagram' && q.route === 'queue').sort((a, b) => b.at.localeCompare(a.at)).slice(0, 10);
+  if (!ours.length) return kpi('Posted', String(posted7.length), 'Last 7 days');
+  const avg = ours.reduce((a, q) => a + q.result.vmaf, 0) / ours.length;
+  return kpi('Avg. quality', avg.toFixed(1), `VMAF · last ${ours.length} post${ours.length === 1 ? '' : 's'}`);
+}
+// Bars of every measured post (VMAF), oldest → newest. The newest is solid.
+function qualityChart() {
+  const ours = S.quality.filter((q) => q.platform === 'instagram' && q.route === 'queue').sort((a, b) => a.at.localeCompare(b.at)).slice(-14);
+  if (!ours.length) return null;
+  const app = S.quality.filter((q) => q.route === 'app');
+  const avg = (l) => l.reduce((a, q) => a + q.result.vmaf, 0) / l.length;
+  const lo = Math.min(80, ...ours.map((q) => q.result.vmaf), ...app.map((q) => q.result.vmaf)) - 2;
+  const y = (v) => `${Math.max(6, ((v - lo) / (100 - lo)) * 100)}%`;
+  const bars = el('div', { class: 'qbars' });
+  ours.forEach((q, i) => { const p = S.posts.find((x) => x.id === q.postId); bars.append(el('button', { class: 'qbar' + (i === ours.length - 1 ? ' last' : ''), style: `height:${y(q.result.vmaf)}`, title: `${p?.caption || q.original} · VMAF ${q.result.vmaf}`, on: { click: () => (location.hash = `#/quality/${q.id}`) } }, el('span', {}, String(Math.round(q.result.vmaf))))); });
+  if (app.length) bars.append(el('div', { class: 'qbase', style: `bottom:${y(avg(app))}` }));
+  return el('div', { class: 'card stack', style: 'margin-top:16px;gap:12px' },
+    el('div', { class: 'row' }, el('h2', { class: 'h3', style: 'flex:1' }, 'Quality over time'), el('span', { class: 'small muted' }, `■ Queue posts (avg ${avg(ours).toFixed(1)})`), app.length ? el('span', { class: 'small muted' }, `┄ Instagram app baseline (${avg(app).toFixed(1)})`) : null, el('a', { class: 'link small', href: '#/quality' }, 'Open Quality Lab →')),
+    bars);
+}
 
 // ================================================================ QUEUE
 let queueTab = 'all';
+let queueSearch = '';
+const queueSel = new Set();
+const selectable = (p) => statusOf(p) !== 'posted';
+function postMeta(p) {
+  if (p.images?.length) return p.kind === 'story' ? `Story · ${p.images.length} frame${p.images.length === 1 ? '' : 's'}` : `Carousel · ${p.images.length} photos`;
+  const m = p.meta; const bits = [];
+  if (m) bits.push(fmtDur(m.durationSec), `${m.width}×${m.height}`);
+  if (p.fix) bits.push(FIX_TEXT[p.fix] || p.fix);
+  return bits.join(' · ') || 'Instagram Reel';
+}
+function qualityCell(p) {
+  const s = statusOf(p);
+  if (needsYou(p)) return el('span', { class: 'faint' }, '—');
+  if (s === 'posted') { const v = vmafOf(p); return v != null ? el('span', { class: 'small mono' }, `VMAF ${v}`) : el('a', { class: 'link small', href: `#/post/${p.id}` }, 'Measure →'); }
+  if (p.fix && p.fix !== 'none') return el('span', { class: 'small muted', title: FIX_TEXT[p.fix] }, 'Fix applied');
+  return el('span', { class: 'small muted' }, 'Ready ✓');
+}
 VIEWS.queue = (c) => {
   const need = S.posts.filter(needsYou).length;
-  topbar('Queue', `${S.posts.length} post${S.posts.length === 1 ? '' : 's'}${need ? ` · ${need} need you` : ''}`, [btn('New post', 'primary', () => (location.hash = '#/new'))]);
+  for (const id of [...queueSel]) if (!S.posts.some((p) => p.id === id && selectable(p))) queueSel.delete(id);
+  const body = el('div');
+  topbar('Queue', `${S.posts.length} post${S.posts.length === 1 ? '' : 's'}${need ? ` · ${need} need you` : ''}`, [searchBox(queueSearch, (v) => { queueSearch = v; draw(); }, 'Search captions…'), btn('New post', 'primary', () => (location.hash = '#/new'))]);
   const groups = { all: () => true, scheduled: upcoming, need: needsYou, posted: (p) => statusOf(p) === 'posted' };
   const counts = Object.fromEntries(Object.entries(groups).map(([k, f]) => [k, S.posts.filter(f).length]));
-  const tabs = el('div', { class: 'tabs' }, ...[['all', 'All'], ['scheduled', 'Scheduled'], ['need', 'Needs you'], ['posted', 'Posted']].map(([k, l]) => el('button', { class: queueTab === k ? 'on' : '', on: { click: () => { queueTab = k; render(); } } }, l, el('span', { class: 'n' + (k === 'need' && counts.need ? ' hot' : '') }, String(counts[k])))));
-  c.append(tabs);
+  c.append(el('div', { class: 'tabs' }, ...[['all', 'All'], ['scheduled', 'Scheduled'], ['need', 'Needs you'], ['posted', 'Posted']].map(([k, l]) => el('button', { class: queueTab === k ? 'on' : '', on: { click: () => { queueTab = k; queueSel.clear(); render(); } } }, l, el('span', { class: 'n' + (k === 'need' && counts.need ? ' hot' : '') }, String(counts[k]))))), body);
   const order = (p) => (needsYou(p) ? 0 : upcoming(p) ? 1 : 2);
-  const rows = S.posts.filter(groups[queueTab]).sort((a, b) => order(a) - order(b) || (order(a) === 2 ? b.publishAt.localeCompare(a.publishAt) : a.publishAt.localeCompare(b.publishAt)));
-  if (!rows.length) { c.append(el('div', { class: 'card empty' }, el('div', { class: 'h3' }, queueTab === 'need' ? 'Nothing needs you' : 'No posts here yet'), el('div', {}, 'Schedule a Reel and it will appear in this list.'), el('div', { style: 'margin-top:14px' }, btn('New post', 'primary', () => (location.hash = '#/new'))))); return; }
-  const tbody = el('tbody');
-  for (const p of rows) {
-    const s = statusOf(p);
-    const actions = el('div', { class: 'row', style: 'justify-content:flex-end;gap:4px' });
-    if (s === 'missed') actions.append(btn('Post now', 'primary small', () => missedDecision(p)));
-    if (s === 'failed') actions.append(btn('Retry', 'secondary small', () => retry(p)));
-    if (s === 'posted' && p.permalink) actions.append(el('a', { class: 'btn ghost small', href: p.permalink, target: '_blank', rel: 'noopener' }, 'View', icon('external')));
-    if (s !== 'posted') actions.append(btn('Edit', 'ghost small', () => editPost(p)));
-    actions.append(btn('History', 'ghost small', () => history(p)));
-    if (s !== 'posted') actions.append(btn('Remove', 'ghost small danger', () => removePost(p)));
-    tbody.append(el('tr', { class: needsYou(p) ? 'attention' : '' },
-      el('td', {}, el('div', { class: 'post-cell' }, thumb(p), el('div', { style: 'min-width:0' }, el('div', { class: 'cap' }, p.caption || '(no caption)'), el('div', { class: 'row small muted', style: 'gap:8px;margin-top:2px' }, el('span', { class: 'pstack' }, badge('instagram', true)), p.error && s !== 'posted' ? el('span', { style: 'color:var(--warning)' }, p.error.slice(0, 80)) : 'Instagram Reel')))),
-      el('td', { class: 'small', style: 'white-space:nowrap' }, fmtWhen(p.publishAt)),
-      el('td', {}, pill(s)),
-      el('td', {}, actions)));
+  function draw() {
+    const q = queueSearch.trim().toLowerCase();
+    const rows = S.posts.filter(groups[queueTab]).filter((p) => !q || (p.caption || '').toLowerCase().includes(q))
+      .sort((a, b) => order(a) - order(b) || (order(a) === 2 ? b.publishAt.localeCompare(a.publishAt) : a.publishAt.localeCompare(b.publishAt)));
+    if (!rows.length) {
+      body.replaceChildren(el('div', { class: 'card empty' }, el('div', { class: 'h3' }, q ? 'No captions match' : queueTab === 'need' ? 'Nothing needs you' : 'No posts here yet'), el('div', {}, q ? `Nothing in this tab mentions "${queueSearch.trim()}".` : 'Schedule a Reel and it will appear in this list.'), q ? null : el('div', { style: 'margin-top:14px' }, btn('New post', 'primary', () => (location.hash = '#/new')))));
+      return;
+    }
+    const pick = rows.filter(selectable);
+    const all = el('input', { type: 'checkbox', class: 'check', 'aria-label': 'Select all', disabled: !pick.length });
+    all.checked = pick.length > 0 && pick.every((p) => queueSel.has(p.id));
+    all.indeterminate = !all.checked && pick.some((p) => queueSel.has(p.id));
+    all.addEventListener('change', () => { for (const p of pick) all.checked ? queueSel.add(p.id) : queueSel.delete(p.id); draw(); });
+    const tbody = el('tbody');
+    for (const p of rows) {
+      const s = statusOf(p);
+      const box = el('input', { type: 'checkbox', class: 'check', 'aria-label': 'Select post', disabled: !selectable(p) });
+      box.checked = queueSel.has(p.id);
+      box.addEventListener('change', () => { box.checked ? queueSel.add(p.id) : queueSel.delete(p.id); draw(); });
+      const primary = s === 'missed' ? btn('Post now', 'primary small', () => missedDecision(p)) : s === 'failed' ? btn('Retry', 'secondary small', () => retry(p)) : null;
+      const more = moreBtn(() => [
+        ['Open', () => openPost(p)],
+        s !== 'posted' && p.kind !== 'photos' && p.kind !== 'story' && ['Edit', () => editPost(p)],
+        s === 'posted' && p.permalink && ['View on Instagram', () => window.open(p.permalink, '_blank', 'noopener')],
+        ['What happened', () => history(p)],
+        s !== 'posted' && ['Remove from schedule', () => removePost(p), { danger: true }],
+      ]);
+      tbody.append(el('tr', { class: 'clickable ' + (needsYou(p) ? 'attention' : '') + (queueSel.has(p.id) ? ' selected' : ''), on: { click: (e) => { if (!e.target.closest('button, input, a')) openPost(p); } } },
+        el('td', { class: 'cb' }, box),
+        el('td', {}, el('div', { class: 'post-cell' }, thumb(p), el('div', { style: 'min-width:0' }, el('div', { class: 'cap' }, postTitle(p)), el('div', { class: 'row small muted', style: 'gap:8px;margin-top:2px' }, platformStack(p), p.error && needsYou(p) ? el('span', { style: 'color:var(--warning)' }, p.error.split(' (Mac')[0].slice(0, 80)) : postMeta(p))))),
+        el('td', { class: 'small', style: 'white-space:nowrap' }, fmtWhen(p.publishAt)),
+        el('td', {}, pill(s)),
+        el('td', {}, qualityCell(p)),
+        el('td', {}, el('div', { class: 'row', style: 'justify-content:flex-end;gap:4px' }, primary, more))));
+    }
+    const sel = S.posts.filter((p) => queueSel.has(p.id));
+    const bulk = sel.length ? el('div', { class: 'bulkbar' }, el('b', {}, `${sel.length} selected`), btn('Move to day…', 'ghost small', () => bulkMove(sel)), btn('Shift by…', 'ghost small', () => bulkShift(sel)), btn('Remove from schedule', 'ghost small danger', () => bulkRemove(sel)), el('span', { style: 'flex:1' }), btn('Clear', 'ghost small', () => { queueSel.clear(); draw(); })) : null;
+    body.replaceChildren(...[bulk, el('div', { class: 'card flush' }, el('table', { class: 'table' }, el('thead', {}, el('tr', {}, el('th', { class: 'cb' }, all), el('th', {}, 'Post'), el('th', {}, 'Scheduled for'), el('th', {}, 'Status'), el('th', {}, 'Quality'), el('th', {}))), tbody))].filter(Boolean));
   }
-  c.append(el('div', { class: 'card flush' }, el('table', { class: 'table' }, el('thead', {}, el('tr', {}, el('th', {}, 'Post'), el('th', {}, 'Scheduled for'), el('th', {}, 'Status'), el('th', {}))), tbody)));
+  draw();
 };
+
+// ---------------------------------------------------------------- bulk actions
+async function bulkApply(posts, fn, done) {
+  let ok = 0; const errs = [];
+  for (const p of posts) { try { await fn(p); ok++; } catch (e) { errs.push(e.message); } }
+  queueSel.clear();
+  toast(errs.length ? `${ok} done · ${errs.length} failed: ${errs[0]}` : done(ok), errs.length > 0);
+  await load(); render();
+}
+function bulkMove(posts) {
+  modal((m, close) => {
+    const d = new Date(Date.now() + DAY);
+    const date = el('input', { class: 'input', type: 'date', value: toDateInput(d), min: toDateInput(new Date()) });
+    const err = el('div', { class: 'small', style: 'color:var(--danger)' });
+    m.append(el('h2', { class: 'h2' }, `Move ${posts.length} post${posts.length === 1 ? '' : 's'} to another day`), el('div', { class: 'muted small' }, 'Each post keeps its own time of day.'), el('label', { class: 'field' }, el('span', {}, 'New day'), date), err,
+      el('div', { class: 'foot' }, btn('Cancel', 'ghost', close), btn('Move', 'primary', async () => {
+        const times = posts.map((p) => { const o = new Date(p.publishAt); return fromInputs(date.value, toTimeInput(o)); });
+        if (times.some((t) => !t || t < Date.now())) { err.textContent = 'At least one post would land in the past. Pick a later day.'; return; }
+        close();
+        await bulkApply(posts, (p) => api(`/api/queue/${p.id}`, json('PATCH', { at: times[posts.indexOf(p)].toISOString() })), (n) => `Moved ${n} post${n === 1 ? '' : 's'}`);
+      })));
+  });
+}
+function bulkShift(posts) {
+  modal((m, close) => {
+    const n = el('input', { class: 'input', type: 'number', value: 1, min: 1, max: 365, style: 'width:90px' });
+    const unit = el('select', { class: 'input', style: 'width:auto' }, el('option', { value: '3600000' }, 'hours'), el('option', { value: String(DAY), selected: true }, 'days'), el('option', { value: String(7 * DAY) }, 'weeks'));
+    const dir = el('select', { class: 'input', style: 'width:auto' }, el('option', { value: '1' }, 'later'), el('option', { value: '-1' }, 'earlier'));
+    const err = el('div', { class: 'small', style: 'color:var(--danger)' });
+    m.append(el('h2', { class: 'h2' }, `Shift ${posts.length} post${posts.length === 1 ? '' : 's'}`), el('div', { class: 'row', style: 'gap:10px' }, n, unit, dir), err,
+      el('div', { class: 'foot' }, btn('Cancel', 'ghost', close), btn('Shift', 'primary', async () => {
+        const ms = Number(n.value) * Number(unit.value) * Number(dir.value);
+        if (!ms) { err.textContent = 'Enter how far to shift.'; return; }
+        const times = posts.map((p) => new Date(new Date(p.publishAt).getTime() + ms));
+        if (times.some((t) => t < Date.now())) { err.textContent = 'At least one post would land in the past.'; return; }
+        close();
+        await bulkApply(posts, (p) => api(`/api/queue/${p.id}`, json('PATCH', { at: times[posts.indexOf(p)].toISOString() })), (k) => `Shifted ${k} post${k === 1 ? '' : 's'}`);
+      })));
+  });
+}
+function bulkRemove(posts) {
+  modal((m, close) => {
+    m.append(el('h2', { class: 'h2' }, `Remove ${posts.length} post${posts.length === 1 ? '' : 's'}?`), el('div', { class: 'muted' }, 'They come off the schedule. The videos stay in your Library.'),
+      el('div', { class: 'foot' }, btn('Cancel', 'ghost', close), btn('Remove', 'primary', async () => { close(); await bulkApply(posts, (p) => api(`/api/queue/${p.id}`, { method: 'DELETE' }), (k) => `Removed ${k} post${k === 1 ? '' : 's'}`); })));
+  });
+}
 
 // ---------------------------------------------------------------- post actions
 async function retry(p) { try { await api(`/api/queue/${p.id}/retry`, { method: 'POST' }); toast('Back in the queue'); await load(); render(); } catch (e) { toast(e.message, true); } }
@@ -311,7 +511,7 @@ async function history(p) {
   let log = [];
   try { log = (await api(`/api/queue/${p.id}/log`)).log; } catch (e) { toast(e.message, true); return; }
   modal((m, close) => {
-    m.append(el('div', { class: 'row' }, el('h2', { class: 'h2', style: 'flex:1' }, 'What happened'), pill(statusOf(p))), el('div', { class: 'muted small' }, p.caption || '(no caption)'));
+    m.append(el('div', { class: 'row' }, el('h2', { class: 'h2', style: 'flex:1' }, 'What happened'), pill(statusOf(p))), el('div', { class: 'muted small' }, postTitle(p)));
     const list = el('div', { class: 'log' }, ...log.map((l) => el('div', { class: 'ent' }, el('div', {}, el('div', {}, friendly(l.msg)), el('div', { class: 'small faint mono' }, new Date(l.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' }))))));
     m.append(list, el('div', { class: 'foot' }, btn('Close', 'secondary', close)));
   });
@@ -333,14 +533,14 @@ function editPost(p) {
     cap.focus();
   });
 }
-function missedDecision(p) {
+function missedDecision(p, initial = 'now') {
   modal((m, close) => {
-    let choice = 'now';
+    let choice = initial;
     const d = new Date(Date.now() + 2 * 3600e3); d.setMinutes(0, 0, 0);
     const date = el('input', { class: 'input', type: 'date', value: toDateInput(d) });
     const time = el('input', { class: 'input', type: 'time', value: toTimeInput(d) });
     const err = el('div', { class: 'small', style: 'color:var(--danger)' });
-    const go = btn('Post now', 'primary', async () => {
+    const go = btn(choice === 'later' ? 'Reschedule' : 'Post now', 'primary', async () => {
       try {
         if (choice === 'now') await api(`/api/queue/${p.id}/post-now`, { method: 'POST' });
         if (choice === 'later') { const w = fromInputs(date.value, time.value); if (!w || w < Date.now()) { err.textContent = 'Pick a time in the future.'; return; } await api(`/api/queue/${p.id}`, json('PATCH', { at: w.toISOString() })); }
@@ -358,52 +558,178 @@ function missedDecision(p) {
 }
 
 // ================================================================ CALENDAR
-let calMonth = new Date(); calMonth.setDate(1);
-VIEWS.calendar = (c) => {
-  const label = calMonth.toLocaleDateString([], { month: 'long', year: 'numeric' });
-  const nav = (dm) => () => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + dm, 1); render(); };
-  topbar('Calendar', null, [btn(el('span', { class: 'ico', html: svgIcon('chevL') }), 'ghost', nav(-1), { 'aria-label': 'Previous month' }), el('b', { style: 'min-width:130px;text-align:center;font-weight:500' }, label), btn(el('span', { class: 'ico', html: svgIcon('chevR') }), 'ghost', nav(1), { 'aria-label': 'Next month' }), btn('Today', 'secondary', () => { calMonth = new Date(); calMonth.setDate(1); render(); }), btn('New post', 'primary', () => (location.hash = '#/new'))]);
-  const grid = el('div', { class: 'cal' }, ...['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => el('div', { class: 'dow' }, d)));
-  const first = new Date(calMonth); const offset = (first.getDay() + 6) % 7;
-  const start = new Date(first); start.setDate(1 - offset);
+let calView = 'month';
+let calCursor = new Date(); calCursor.setHours(0, 0, 0, 0);
+const startOfWeek = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+const shortTime = (d) => fmtTime(d).replace(':00', '').replace(' ', '').toLowerCase().replace(/m$/, '');
+const openPost = (p) => { location.hash = `#/post/${p.id}`; };
+
+// Drag & drop: a Library video onto a day opens the composer for that day; a post onto a day moves it.
+function dropTarget(node, day) {
+  node.addEventListener('dragover', (e) => { if (day < startOfDay(new Date())) return; e.preventDefault(); node.classList.add('drop'); });
+  node.addEventListener('dragleave', () => node.classList.remove('drop'));
+  node.addEventListener('drop', async (e) => {
+    e.preventDefault(); node.classList.remove('drop');
+    const media = e.dataTransfer.getData('text/x-queue-media');
+    const postId = e.dataTransfer.getData('text/x-queue-post');
+    if (media) return openInComposer(media, toDateInput(day), USUAL_DEFAULT);
+    const p = S.posts.find((x) => x.id === postId);
+    if (!p || !selectable(p)) return;
+    const when = fromInputs(toDateInput(day), toTimeInput(new Date(p.publishAt)));
+    if (when < Date.now()) return toast('That time has already passed on that day', true);
+    try { await api(`/api/queue/${p.id}`, json('PATCH', { at: when.toISOString() })); toast(`Moved to ${fmtWhen(when.toISOString())}`); await load(); render(); } catch (err) { toast(err.message, true); }
+  });
+}
+const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+function evChip(p) {
+  const s = statusOf(p);
+  const b = el('button', { class: `ev ${s}`, title: `${STATUS[s]} · ${p.caption || ''}`, draggable: selectable(p) ? 'true' : null, on: { click: () => openPost(p) } }, el('b', {}, shortTime(new Date(p.publishAt))), el('span', {}, postTitle(p)));
+  b.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/x-queue-post', p.id));
+  return b;
+}
+const postsOn = (d) => S.posts.filter((p) => sameDay(new Date(p.publishAt), d)).sort((a, b) => a.publishAt.localeCompare(b.publishAt));
+
+VIEWS.calendar = async (c) => {
+  const step = (dir) => () => {
+    const d = new Date(calCursor);
+    if (calView === 'week') d.setDate(d.getDate() + 7 * dir); else { d.setDate(1); d.setMonth(d.getMonth() + dir); }
+    calCursor = d; render();
+  };
+  const ws = startOfWeek(calCursor);
+  const we = new Date(ws); we.setDate(ws.getDate() + 6);
+  const label = calView === 'week'
+    ? `${ws.toLocaleDateString([], { month: 'short', day: 'numeric' })} – ${we.toLocaleDateString([], ws.getMonth() === we.getMonth() ? { day: 'numeric' } : { month: 'short', day: 'numeric' })}`
+    : calCursor.toLocaleDateString([], { month: 'long', year: 'numeric' });
+  const seg = el('div', { class: 'seg' }, ...[['month', 'Month'], ['week', 'Week'], ['list', 'List']].map(([k, l]) => el('button', { class: calView === k ? 'on' : '', on: { click: () => { calView = k; render(); } } }, l)));
+  const unit = calView === 'week' ? 'week' : 'month';
+  topbar('Calendar', null, [seg, btn(el('span', { class: 'ico', html: svgIcon('chevL') }), 'ghost', step(-1), { 'aria-label': `Previous ${unit}` }), el('b', { style: 'min-width:130px;text-align:center;font-weight:500' }, label), btn(el('span', { class: 'ico', html: svgIcon('chevR') }), 'ghost', step(1), { 'aria-label': `Next ${unit}` }), btn('Today', 'secondary', () => { calCursor = startOfDay(new Date()); render(); }), btn('New post', 'primary', () => (location.hash = '#/new'))]);
+
+  const main = el('div', { style: 'min-width:0' });
   const today = new Date();
-  for (let i = 0; i < 42; i++) {
-    const d = new Date(start); d.setDate(start.getDate() + i);
-    if (i >= 35 && d.getMonth() !== calMonth.getMonth()) break;
-    const posts = S.posts.filter((p) => sameDay(new Date(p.publishAt), d)).sort((a, b) => a.publishAt.localeCompare(b.publishAt));
-    const cell = el('div', { class: 'day' + (d.getMonth() !== calMonth.getMonth() ? ' out' : '') + (sameDay(d, today) ? ' today' : '') }, el('div', { class: 'num' }, String(d.getDate())));
-    for (const p of posts.slice(0, 3)) { const s = statusOf(p); cell.append(el('button', { class: `ev ${s}`, title: `${STATUS[s]} · ${p.caption || ''}`, on: { click: () => (s === 'missed' ? missedDecision(p) : s === 'posted' ? history(p) : editPost(p)) } }, el('b', {}, fmtTime(new Date(p.publishAt)).replace(':00', '').replace(' ', '').toLowerCase()), el('span', {}, p.caption || '(no caption)'))); }
-    if (posts.length > 3) cell.append(el('div', { class: 'small muted' }, `+${posts.length - 3} more`));
-    grid.append(cell);
+  if (calView === 'month') {
+    const grid = el('div', { class: 'cal' }, ...['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => el('div', { class: 'dow' }, d)));
+    const first = new Date(calCursor); first.setDate(1);
+    const start = startOfWeek(first);
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(start); d.setDate(start.getDate() + i);
+      if (i >= 35 && d.getMonth() !== first.getMonth()) break;
+      const posts = postsOn(d);
+      const cell = el('div', { class: 'day' + (d.getMonth() !== first.getMonth() ? ' out' : '') + (sameDay(d, today) ? ' today' : '') + (d < startOfDay(today) ? ' past' : '') }, el('div', { class: 'num' }, String(d.getDate())));
+      for (const p of posts.slice(0, 3)) cell.append(evChip(p));
+      if (posts.length > 3) cell.append(el('button', { class: 'more-link small', on: { click: () => { calCursor = d; calView = 'week'; render(); } } }, `+${posts.length - 3} more`));
+      dropTarget(cell, d);
+      grid.append(cell);
+    }
+    main.append(grid);
+  } else if (calView === 'week') {
+    const grid = el('div', { class: 'cal week' });
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(ws); d.setDate(ws.getDate() + i);
+      const col = el('div', { class: 'wcol' + (sameDay(d, today) ? ' today' : '') + (d < startOfDay(today) ? ' past' : '') }, el('div', { class: 'whead' }, el('span', { class: 'label' }, d.toLocaleDateString([], { weekday: 'short' })), el('span', { class: 'num' }, String(d.getDate()))));
+      const posts = postsOn(d);
+      for (const p of posts) {
+        const s = statusOf(p);
+        const card = el('button', { class: `wcard ${s}`, draggable: selectable(p) ? 'true' : null, on: { click: () => openPost(p) } }, el('div', { class: 'row', style: 'gap:6px' }, el('b', {}, fmtTime(new Date(p.publishAt))), el('span', { style: 'flex:1' }), el('span', { class: `sdot ${s}`, title: STATUS[s] })), thumb(p, 'wthumb'), el('div', { class: 'small wcap' }, postTitle(p)));
+        card.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/x-queue-post', p.id));
+        col.append(card);
+      }
+      if (!posts.length) col.append(el('div', { class: 'small faint wempty' }, d < startOfDay(today) ? '' : 'Drop a video here'));
+      dropTarget(col, d);
+      grid.append(col);
+    }
+    main.append(grid);
+  } else {
+    const first = new Date(calCursor); first.setDate(1);
+    const next = new Date(first); next.setMonth(first.getMonth() + 1);
+    const posts = S.posts.filter((p) => { const d = new Date(p.publishAt); return d >= first && d < next; }).sort((a, b) => a.publishAt.localeCompare(b.publishAt));
+    const list = el('div', { class: 'card flush' });
+    if (!posts.length) list.append(el('div', { class: 'empty' }, el('div', { class: 'h3' }, 'Nothing this month'), el('div', {}, 'Posts you schedule show up here, day by day.')));
+    let last = '';
+    for (const p of posts) {
+      const d = new Date(p.publishAt); const day = d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+      if (day !== last) { list.append(el('div', { class: 'upnext-day label' }, sameDay(d, today) ? `Today · ${day}` : day)); last = day; }
+      list.append(el('div', { class: 'upnext-row clickable', on: { click: () => openPost(p) } }, el('div', { class: 'time' }, fmtTime(d)), thumb(p), el('div', { class: 'cap' }, postTitle(p)), el('span', { class: 'small muted' }, postMeta(p)), platformStack(p), pill(statusOf(p))));
+    }
+    main.append(list);
   }
-  c.append(grid, el('div', { class: 'row small muted', style: 'gap:16px;margin-top:14px;flex-wrap:wrap' }, ...['scheduled', 'ready', 'sending', 'posted', 'missed', 'failed'].map(pill)));
+
+  // ---- side panel: unscheduled videos + legend
+  const side = el('div', { class: 'stack' });
+  const unsched = el('div', { class: 'card stack', style: 'gap:10px' }, el('div', { class: 'row' }, el('h2', { class: 'h3', style: 'flex:1' }, 'Unscheduled'), el('span', { class: 'small faint' }, '…')));
+  side.append(unsched, el('div', { class: 'card stack', style: 'gap:8px' }, el('h2', { class: 'h3' }, 'Legend'), ...['scheduled', 'ready', 'sending', 'posted', 'missed', 'failed'].map((k) => el('div', {}, pill(k)))));
+  c.append(el('div', { class: 'cal-layout' }, main, side));
+  try {
+    const { items } = await api('/api/media');
+    const free = items.filter((i) => !i.fixedCopy && !i.posts.length);
+    unsched.querySelector('.faint').textContent = String(free.length);
+    if (!free.length) unsched.append(el('div', { class: 'small muted' }, 'Every video in your Library is scheduled. New uploads you don\'t schedule land here.'));
+    for (const it of free.slice(0, 8)) {
+      const v = el('video', { class: 'thumb', muted: true, playsInline: true, preload: 'metadata', src: `/media/${encodeURIComponent(it.name)}#t=0.8` });
+      const m = it.meta;
+      const row = el('div', { class: 'draft', draggable: 'true', title: 'Drag onto a day, or click to schedule', on: { click: () => openInComposer(it.name) } }, el('span', { class: 'grip', html: svgIcon('moreV') }), v, el('div', { style: 'min-width:0;flex:1' }, el('b', {}, shortName(it.name)), el('div', { class: 'small muted' }, m ? `${m.needsTrim ? 'Needs a trim' : m.plan === 'none' ? 'Checked ✓' : 'Needs a fix'} · ${resLabel(m)} · ${fmtDur(m.durationSec)}` : fmtBytes(it.bytes))));
+      row.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/x-queue-media', it.name); e.dataTransfer.effectAllowed = 'copy'; });
+      unsched.append(row);
+    }
+    if (free.length > 8) unsched.append(el('a', { class: 'link small', href: '#/library' }, `+${free.length - 8} more in Library →`));
+    if (free.length) unsched.append(el('div', { class: 'small faint' }, `Drag a video onto a day. It lands at ${USUAL_TIMES.find(([v]) => v === USUAL_DEFAULT)[1]}; change it before you schedule.`));
+  } catch (e) { unsched.append(el('div', { class: 'small muted' }, e.message)); }
 };
 
 // ================================================================ LIBRARY
+let libFilter = 'all';
+let libSearch = '';
+let libSort = 'newest';
+function libState(it) {
+  const ps = it.posts.map((p) => ({ ...p, s: statusOf(p) }));
+  const live = ps.filter((p) => p.s !== 'posted').sort((a, b) => a.publishAt.localeCompare(b.publishAt));
+  const need = ps.find((p) => ['missed', 'failed'].includes(p.s));
+  const posted = ps.filter((p) => p.s === 'posted').sort((a, b) => b.publishAt.localeCompare(a.publishAt))[0];
+  if (need) return { key: 'scheduled', text: STATUS[need.s], color: 'warning', post: need };
+  if (live.length) return { key: 'scheduled', text: `Scheduled · ${fmtDay(new Date(live[0].publishAt))}`, color: 'text-secondary', post: live[0] };
+  if (posted) return { key: 'posted', text: `Posted · ${fmtDay(new Date(posted.publishAt))}`, color: 'success', post: posted };
+  const m = it.meta;
+  if (m?.needsTrim) return { key: 'fix', text: 'Needs a trim', color: 'warning' };
+  if (m && m.plan !== 'none') return { key: 'fix', text: 'Needs a fix', color: 'warning' };
+  const days = Math.floor((Date.now() - new Date(it.modified)) / DAY);
+  return { key: 'ready', text: days >= 7 ? `Ready ✓ · unused ${days >= 14 ? `${Math.floor(days / 7)} weeks` : '1 week'}` : 'Ready ✓', color: 'text-secondary' };
+}
 VIEWS.library = async (c) => {
-  topbar('Library', 'Your uploaded videos and the copies Queue prepares', [btn('Upload', 'primary', () => (location.hash = '#/new'))]);
   const [{ items }, sum] = await Promise.all([api('/api/media'), api('/api/storage')]);
+  const originals = items.filter((i) => !i.fixedCopy).map((it) => ({ ...it, st: libState(it) }));
+  const sortSel = el('select', { class: 'input select-sm', 'aria-label': 'Sort', on: { change: (e) => { libSort = e.target.value; draw(); } } }, ...[['newest', 'Newest'], ['oldest', 'Oldest'], ['largest', 'Largest'], ['name', 'Name']].map(([v, l]) => el('option', { value: v, selected: libSort === v }, l)));
+  topbar('Library', `${originals.length} video${originals.length === 1 ? '' : 's'}`, [searchBox(libSearch, (v) => { libSearch = v; draw(); }, 'Search videos…'), sortSel, btn('Upload', 'primary', () => (location.hash = '#/new'))]);
   const total = sum.totalBytes || 1;
   const waiting = total - sum.clearable.bytes;
-  const store = el('div', { class: 'card row', style: 'gap:28px;align-items:center' },
+  c.append(el('div', { class: 'card row', style: 'gap:28px;align-items:center' },
     el('div', { style: 'flex:1' }, el('h2', { class: 'h3' }, `Queue's video copies: ${fmtBytes(sum.totalBytes)}`),
       el('div', { class: 'split-bar', style: 'margin:10px 0' }, el('span', { style: `flex:${Math.max(waiting, 1)};background:var(--brand)` }), el('span', { style: `flex:${Math.max(sum.posted.bytes, 0.001)};background:var(--surface-3)` }), el('span', { style: `flex:${Math.max(sum.unused.bytes, 0.001)};background:var(--border-default)` })),
       el('div', { class: 'row small muted', style: 'gap:18px' }, el('span', {}, `■ Waiting to post · ${fmtBytes(waiting)}`), el('span', {}, `■ Already posted · ${fmtBytes(sum.posted.bytes)}`), el('span', {}, `□ Never scheduled · ${fmtBytes(sum.unused.bytes)}`))),
-    el('div', { class: 'stack', style: 'gap:6px;align-items:flex-end' }, btn(sum.clearable.count ? `Clear ${fmtBytes(sum.clearable.bytes)}…` : 'Nothing to clear', 'secondary', () => clearStorage(sum), { disabled: !sum.clearable.count }), el('div', { class: 'small faint' }, 'Never touches your originals or anything waiting to post.')));
-  c.append(store);
-  const originals = items.filter((i) => !i.fixedCopy);
-  if (!originals.length) { c.append(el('div', { class: 'card empty', style: 'margin-top:16px' }, el('div', { class: 'h3' }, 'No videos yet'), el('div', {}, 'Videos you upload show up here.'))); return; }
-  const grid = el('div', { class: 'media-grid', style: 'margin-top:20px' });
-  for (const it of originals) {
-    const v = el('video', { muted: true, playsInline: true, preload: 'metadata', src: `/media/${encodeURIComponent(it.name)}#t=0.8` });
-    v.addEventListener('loadedmetadata', () => { const s = Math.round(v.duration); dur.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; });
-    const dur = el('span', { class: 'dur' }, '');
-    const name = it.name.replace(/^\d+-/, '');
-    const p = it.posts[0]; const s = p ? statusOf(p) : null;
-    const tag = !p ? el('div', { class: 'small faint' }, 'Not scheduled') : el('div', { class: 'small', style: `color:var(--${s === 'posted' ? 'success' : needsYou(p) ? 'warning' : 'text-secondary'})` }, `${STATUS[s]} · ${fmtDay(new Date(p.publishAt))}`);
-    grid.append(el('div', { class: 'media-card' }, el('div', { class: 'frame' }, v, dur), el('b', {}, name), el('div', { class: 'small faint mono' }, fmtBytes(it.bytes)), tag));
+    el('div', { class: 'stack', style: 'gap:6px;align-items:flex-end' }, btn(sum.clearable.count ? `Clear ${fmtBytes(sum.clearable.bytes)}…` : 'Nothing to clear', 'secondary', () => clearStorage(sum), { disabled: !sum.clearable.count }), el('div', { class: 'small faint' }, 'Never touches your originals or anything waiting to post.'))));
+  if (!originals.length) { c.append(el('div', { class: 'card empty', style: 'margin-top:16px' }, el('div', { class: 'h3' }, 'No videos yet'), el('div', {}, 'Videos you upload show up here.'), el('div', { style: 'margin-top:14px' }, btn('Upload a video', 'primary', () => (location.hash = '#/new'))))); return; }
+  const FILTERS = [['all', 'All', () => true], ['ready', 'Ready', (i) => i.st.key === 'ready'], ['fix', 'Needs a fix', (i) => i.st.key === 'fix'], ['scheduled', 'Scheduled', (i) => i.st.key === 'scheduled'], ['posted', 'Posted', (i) => i.st.key === 'posted'], ['unused', 'Unused', (i) => !i.posts.length]];
+  const chips = el('div', { class: 'filters' });
+  const grid = el('div', { class: 'media-grid' });
+  c.append(chips, grid);
+  function draw() {
+    chips.replaceChildren(...FILTERS.map(([k, l, f]) => el('button', { class: 'fchip' + (libFilter === k ? ' on' : ''), on: { click: () => { libFilter = k; draw(); } } }, l, el('span', {}, String(originals.filter(f).length)))));
+    const q = libSearch.trim().toLowerCase();
+    const sorters = { newest: (a, b) => b.modified.localeCompare(a.modified), oldest: (a, b) => a.modified.localeCompare(b.modified), largest: (a, b) => b.bytes - a.bytes, name: (a, b) => shortName(a.name).localeCompare(shortName(b.name)) };
+    const list = originals.filter(FILTERS.find(([k]) => k === libFilter)[2]).filter((i) => !q || shortName(i.name).toLowerCase().includes(q) || i.posts.some((p) => (p.caption || '').toLowerCase().includes(q))).sort(sorters[libSort]);
+    if (!list.length) { grid.replaceChildren(el('div', { class: 'card empty', style: 'grid-column:1/-1' }, el('div', { class: 'h3' }, 'Nothing here'), el('div', {}, q ? `No videos match "${libSearch.trim()}".` : 'No videos in this group.'))); return; }
+    grid.replaceChildren(...list.map((it) => {
+      const v = el('video', { muted: true, playsInline: true, preload: 'metadata', src: `/media/${encodeURIComponent(it.name)}#t=0.8` });
+      const m = it.meta; const st = it.st;
+      const post = st.post && S.posts.find((p) => p.id === st.post.id);
+      const act = !it.posts.length ? () => openInComposer(it.name) : post ? () => openPost(post) : null;
+      const hover = !it.posts.length ? el('span', { class: 'hover-cta' }, 'Schedule') : null;
+      return el('div', { class: 'media-card' + (act ? ' clickable' : ''), role: act ? 'button' : null, tabindex: act ? 0 : null, on: act ? { click: act, keydown: (e) => { if (e.key === 'Enter') act(); } } : null },
+        el('div', { class: 'frame' }, v, m ? el('span', { class: 'dur' }, fmtDur(m.durationSec)) : null, hover),
+        el('b', { title: shortName(it.name) }, shortName(it.name)),
+        el('div', { class: 'small faint' }, [resLabel(m), fmtBytes(it.bytes)].filter(Boolean).join(' · ')),
+        el('div', { class: 'small', style: `color:var(--${st.color})` }, st.text));
+    }));
   }
-  c.append(grid);
+  draw();
 };
 function clearStorage(sum) {
   modal((m, close) => {
@@ -424,45 +750,98 @@ VIEWS.quality = (c) => {
   if (!posted.length) list.append(el('div', { class: 'empty' }, 'Nothing posted yet.'));
   for (const p of posted) {
     const cmd = `node bin/queue.js compare <original> --post ${p.id}`;
-    list.append(el('div', { class: 'upnext-row' }, thumb(p), el('div', { class: 'cap' }, p.caption || '(no caption)'), el('span', { class: 'small muted' }, fmtWhen(p.publishAt)), btn('Copy command', 'secondary small', async () => { await navigator.clipboard?.writeText(cmd); toast('Copied'); })));
+    list.append(el('div', { class: 'upnext-row' }, thumb(p), el('div', { class: 'cap' }, postTitle(p)), el('span', { class: 'small muted' }, fmtWhen(p.publishAt)), btn('Copy command', 'secondary small', async () => { await navigator.clipboard?.writeText(cmd); toast('Copied'); })));
   }
   c.append(list);
 };
 
 // ================================================================ ACCOUNTS
 VIEWS.accounts = (c) => {
-  topbar('Accounts', '9 platforms · what each one allows', [btn('How to connect', 'secondary', () => toast('Run "npm run doctor" in Terminal'))]);
   const st = S.status;
+  const connected = isDemo() ? Object.values(S.extras.platforms).filter((x) => x.state === 'connected' || x.state === 'drafts').length : st && !st.dryRun && st.account ? 1 : 0;
+  topbar('Accounts & connections', `${PLATFORMS.length} platforms · ${connected} connected · what each one allows`, [btn('Run full check', 'secondary', fullCheck)]);
   const grid = el('div', { class: 'platforms' });
   for (const p of PLATFORMS) {
-    let state, cls;
-    if (p.live) { state = st?.dryRun ? 'Dry run' : st?.account ? 'Connected' : 'Problem'; cls = st?.dryRun ? 'missed' : st?.account ? 'posted' : 'failed'; }
-    else { state = 'Coming soon'; cls = 'soon'; }
+    let state, cls, action;
+    const ex = isDemo() ? S.extras.platforms[p.id] : null;
+    if (ex) {
+      const D = { connected: ['Connected', 'posted', 'Manage'], drafts: ['Drafts only', 'missed', 'Manage'], available: ['Available', 'soon', 'Connect'], paid: ['Pay per post', 'sending', 'Connect'] }[ex.state] || ['Available', 'soon', 'Connect'];
+      [state, cls] = D;
+      action = btn(D[2], D[2] === 'Manage' ? 'secondary' : 'primary', () => (p.id === 'instagram' ? manageInstagram() : toast(D[2] === 'Manage' ? `Demo: ${p.name} is connected as ${ex.handle}` : `Demo: connecting ${p.name} isn't wired up yet`)));
+    } else if (p.live) {
+      state = st?.dryRun ? 'Dry run' : st?.account ? 'Connected' : 'Problem'; cls = st?.dryRun ? 'missed' : st?.account ? 'posted' : 'failed';
+      action = btn(st?.account && !st.dryRun ? 'Manage' : 'Connect', st?.account && !st.dryRun ? 'secondary' : 'primary', () => manageInstagram());
+    } else { state = 'Coming soon'; cls = 'soon'; action = btn('Coming soon', 'secondary', null, { disabled: true }); }
     grid.append(el('div', { class: 'card platform' },
-      el('div', { class: 'row' }, el('span', { class: 'pbadge', style: 'width:36px;height:36px', html: svgLogo(p.id) }), el('div', { style: 'flex:1' }, el('h3', { class: 'h3' }, p.name), el('div', { class: 'small faint' }, p.live ? (st?.account ? `@${st.account}` : 'Not connected yet') : 'Not available yet')), el('span', { class: `pill ${cls}` }, state)),
+      el('div', { class: 'row' }, el('span', { class: 'pbadge', style: 'width:36px;height:36px', html: svgLogo(p.id) }), el('div', { style: 'flex:1' }, el('h3', { class: 'h3' }, p.name), el('div', { class: 'small faint' }, ex ? ex.handle || 'Not connected' : p.live ? (st?.account && !st.dryRun ? `@${st.account}` : 'Not connected yet') : 'Not available yet')), el('span', { class: `pill ${cls}` }, state)),
       el('div', { class: 'chips' }, ...p.formats.map((f) => el('span', { class: 'chip' }, f))),
-      el('div', { class: 'small', style: `color:var(--${p.native ? 'success' : p.drafts ? 'warning' : 'text-secondary'})` }, '● ' + p.delivery),
-      el('div', { class: 'small faint' }, p.note)));
+      el('div', { class: 'platform-foot' },
+        el('div', { class: 'small', style: `color:var(--${p.native ? 'success' : p.drafts ? 'warning' : 'text-secondary'})` }, '● ' + p.delivery),
+        el('div', { class: 'small faint' }, p.note),
+        el('div', { style: 'margin-top:6px' }, action))));
   }
   c.append(el('div', { class: 'row small muted', style: 'gap:18px;margin-bottom:14px' }, el('span', { style: 'color:var(--success)' }, '● Platform schedules it natively'), '● Queue posts it at the time', el('span', { style: 'color:var(--warning)' }, '● Goes to your drafts')), grid);
 };
+async function fullCheck() {
+  let st;
+  try { st = await api('/api/status'); S.status = st; renderChrome(); } catch (e) { return toast(e.message, true); }
+  const rows = [
+    ['Video tools (ffmpeg)', st.ffmpeg, st.ffmpeg ? 'Installed' : 'Missing — run: brew install ffmpeg'],
+    ['Temporary links (cloudflared)', st.cloudflared || st.uploadMode !== 'url', st.cloudflared ? 'Installed' : st.uploadMode === 'url' ? 'Missing — run: brew install cloudflared' : 'Not needed for direct upload'],
+    ['Instagram login', !st.dryRun && !!st.account, st.dryRun ? 'Dry run — no login key in .env yet' : st.account ? `@${st.account}` : st.accountError || 'Not connected'],
+    ['Login key', st.dryRun ? null : st.tokenDaysLeft == null || st.tokenDaysLeft > 7, st.dryRun ? '—' : st.tokenDaysLeft != null ? `${st.tokenDaysLeft} days left · renews itself` : 'Renews itself'],
+    ['Scheduler', true, `Running · checks every ${Math.round((st.tickMs || 30000) / 1000)}s`],
+  ];
+  modal((m, close) => {
+    m.append(el('h2', { class: 'h2' }, 'Full check'), el('div', { class: 'stack', style: 'gap:0' }, ...rows.map(([k, ok, v]) => el('div', { class: 'check-row' }, el('span', { class: 'g ' + (ok == null ? '' : ok ? 'ok' : 'no') }, ok == null ? '–' : ok ? '✓' : '!'), el('span', { style: 'flex:1' }, k), el('span', { class: 'small muted', style: 'text-align:right' }, v)))),
+      el('div', { class: 'small faint' }, 'For the deep check (it also tests a real upload link), run npm run doctor in Terminal.'),
+      el('div', { class: 'foot' }, btn('Done', 'primary', close)));
+  });
+}
+function manageInstagram() {
+  const st = S.status; const cfg = S.config || {};
+  modal((m, close) => {
+    const kv = (k, v) => el('div', { class: 'kv' }, el('span', { class: 'k' }, k), el('span', { class: 'mono small' }, v));
+    m.append(el('div', { class: 'row' }, el('span', { class: 'pbadge', style: 'width:36px;height:36px', html: svgLogo('instagram') }), el('h2', { class: 'h2', style: 'flex:1' }, 'Instagram')),
+      el('div', { class: 'stack', style: 'gap:2px' }, kv('Account', st?.account && !st.dryRun ? `@${st.account}` : 'Not connected'), kv('Login type', cfg.login || st?.login || '—'), kv('Upload method', cfg.uploadMode || st?.uploadMode || '—'), kv('Login key', st?.dryRun ? '—' : st?.tokenDaysLeft != null ? `${st.tokenDaysLeft} days left` : 'Renews itself')),
+      el('div', { class: 'inset small muted' }, st?.dryRun ? 'Queue is in dry run: nothing posts until a login key is in .env. Follow the Meta Setup Guide (about 30 minutes), then restart Queue.' : 'Your login key lives in .env and renews itself. To switch accounts, replace IG_ACCESS_TOKEN and IG_USER_ID, then restart Queue.'),
+      el('div', { class: 'foot' }, btn('Close', 'primary', close)));
+  });
+}
 
 // ================================================================ SETTINGS
+let settingsSpy = null;
 VIEWS.settings = async (c) => {
   topbar('Settings', 'Appearance saves instantly · the rest lives in .env for now');
   const cfg = await api('/api/config');
   const theme = localStorage.getItem('queue-theme') || 'system';
-  const seg = el('div', { class: 'seg' }, ...[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => el('button', { class: theme === k ? 'on' : '', on: { click: () => { if (k === 'system') { localStorage.removeItem('queue-theme'); delete document.documentElement.dataset.theme; } else { localStorage.setItem('queue-theme', k); document.documentElement.dataset.theme = k; } render(); } } }, l)));
-  const group = (title, rows) => el('div', { class: 'card', style: 'margin-bottom:16px' }, el('h2', { class: 'h3', style: 'margin-bottom:6px' }, title), ...rows.map(([t, d, ctrl]) => el('div', { class: 'set-row' }, el('div', { class: 'txt' }, el('b', {}, t), el('div', { class: 'small muted' }, d)), ctrl)));
+  const seg = el('div', { class: 'seg' }, ...[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => el('button', { class: theme === k ? 'on' : '', on: { click: () => { setTheme(k); render(); } } }, l)));
   const tog = (on) => el('button', { class: 'toggle' + (on ? ' on' : ''), disabled: true, 'aria-pressed': String(on) });
   const val = (v) => el('span', { class: 'val' }, v);
-  c.append(
-    group('Appearance', [['Theme', 'Apple Light, Apple Dark, or follow your Mac', seg]]),
-    group('Scheduling', [['Send to Instagram early', 'Upload and let Instagram process before post time (max 23h) · STAGE_WINDOW_MIN', val(`${cfg.stageWindowMin} min`)], ['If a post is missed', 'Posts later than this wait for your OK · LATE_LIMIT_MIN', val(`${cfg.lateLimitMin} min late`)], ['Time zone', 'Taken from your Mac', val(tz)]]),
-    group('Notifications', [['Mac notifications', 'Posted, failed and missed · NOTIFY', tog(cfg.notify)]]),
-    group('Background', [['Start at login', 'Runs without a Terminal window', el('div', { class: 'row', style: 'gap:10px' }, el('code', { class: 'cmd' }, `node bin/queue.js autostart ${cfg.autostart ? 'off' : 'on'}`), tog(cfg.autostart))]]),
-    group('Connection', [['Instagram login', 'IG_LOGIN', val(cfg.login)], ['Upload method', cfg.uploadMode === 'url' ? 'Instagram downloads your original from a temporary link' : 'Direct upload to Meta', val(cfg.uploadMode)], ['Graph API version', 'GRAPH_VERSION', val(cfg.graphVersion)]]),
-  );
+  const sections = [
+    ['appearance', 'Appearance', [['Theme', 'Apple Light, Apple Dark, or follow your Mac. The sun/moon button next to the logo flips it anywhere.', seg]]],
+    ['scheduling', 'Scheduling', [
+      ['Send to Instagram early', 'Upload and let Instagram process before post time (max 23h) · STAGE_WINDOW_MIN', val(mins(cfg.stageWindowMin) + ' before')],
+      ['If a post is missed', 'Posts later than this wait for your OK · LATE_LIMIT_MIN', val(`Ask me if > ${mins(cfg.lateLimitMin)} late`)],
+      ['Your usual posting times', 'Quick picks in New post, and where calendar drops land', el('div', { class: 'quick' }, ...USUAL_TIMES.map(([v, l]) => el('span', { class: 'chip' + (v === USUAL_DEFAULT ? ' strong' : '') }, l)))],
+      ['Time zone', 'Taken from your Mac', val(tz)]]],
+    ['video', 'Video', [
+      ['Fix files automatically', 'Cheapest safe fix first: lossless rewrap → audio fix → one clean encode', tog(true)],
+      ['Convert iPhone HDR to standard colour', "Uses Apple's converter. Instagram's own HDR conversion looks washed out", tog(true)],
+      ['Original files', 'Never changed. Queue always works on a copy', val('Untouched')]]],
+    ['notifications', 'Notifications', [['Mac notifications', 'Posted, failed and missed · NOTIFY', tog(cfg.notify)]]],
+    ['background', 'Background', [['Start at login', 'Runs without a Terminal window', el('div', { class: 'row', style: 'gap:10px' }, el('code', { class: 'cmd' }, `node bin/queue.js autostart ${cfg.autostart ? 'off' : 'on'}`), tog(cfg.autostart))]]],
+    ['connection', 'Connection', [['Instagram login', 'IG_LOGIN', val(cfg.login)], ['Upload method', cfg.uploadMode === 'url' ? 'Instagram downloads your original from a temporary link' : 'Direct upload to Meta', val(cfg.uploadMode)], ['Graph API version', 'GRAPH_VERSION', val(cfg.graphVersion)]]],
+  ];
+  const nav = el('nav', { class: 'subnav' }, ...sections.map(([id, title], i) => el('a', { href: `#/settings`, class: i === 0 ? 'on' : '', 'data-k': id, on: { click: (e) => { e.preventDefault(); document.getElementById(`set-${id}`).scrollIntoView({ behavior: 'smooth', block: 'start' }); } } }, title)));
+  const body = el('div', { style: 'min-width:0' }, ...sections.map(([id, title, rows]) => el('div', { class: 'card', id: `set-${id}`, style: 'margin-bottom:16px;scroll-margin-top:12px' }, el('h2', { class: 'h3', style: 'margin-bottom:6px' }, title), ...rows.map(([t, d, ctrl]) => el('div', { class: 'set-row' }, el('div', { class: 'txt' }, el('b', {}, t), el('div', { class: 'small muted' }, d)), ctrl)))));
+  c.append(el('div', { class: 'settings-layout' }, nav, body));
+  // Highlight the section in view.
+  const content = $('#content');
+  const spy = () => { let cur = sections[0][0]; for (const [id] of sections) { const n = document.getElementById(`set-${id}`); if (n && n.getBoundingClientRect().top - content.getBoundingClientRect().top < 80) cur = id; } nav.querySelectorAll('a').forEach((a) => a.classList.toggle('on', a.dataset.k === cur)); };
+  if (settingsSpy) content.removeEventListener('scroll', settingsSpy);
+  settingsSpy = spy;
+  content.addEventListener('scroll', spy, { passive: true });
 };
 
 // ================================================================ NEW POST
@@ -476,78 +855,6 @@ const PREVIEW_NOTE = {
   facebook: 'Facebook Reels covers the bottom ~20% and the right edge. Captions show 2 lines.',
   linkedin: 'LinkedIn shows your video inside the feed, cropped to fit. Captions show 3 lines before "…more".',
 };
-VIEWS.new = (c) => {
-  const up = C.upload;
-  const schedBtn = btn('Schedule Reel', 'primary', schedule, { disabled: !up || up.result.needsTrim });
-  const fmt = el('div', { class: 'seg' }, el('button', { class: 'on' }, 'Video'), ...['Photos', 'Story', 'Text'].map((f) => el('button', { disabled: true, title: 'Coming soon' }, f)));
-  topbar('New post', up ? `${up.name.replace(/^\d+-/, '')} · ${fmtBytes(up.info.bytes)} · ${up.info.video.width}×${up.info.video.height}` : 'Video · Instagram Reel', [fmt, btn('Cancel', 'ghost', () => { resetComposer(); location.hash = '#/dashboard'; }), schedBtn]);
-  if (!up) return renderDrop(c);
-
-  const grid = el('div', { class: 'composer' });
-  // ---- preview column
-  const phoneWrap = el('div');
-  const label = el('div', { class: 'small muted', style: 'font-weight:500' });
-  const note = el('div', { class: 'preview-note' });
-  const ptabs = el('div', { class: 'ptabs' });
-  const video = el('video', { src: `/media/${encodeURIComponent(up.name)}`, muted: true, autoplay: true, loop: true, playsInline: true });
-  video.muted = true;
-  const coverLbl = el('span', { class: 'small muted', style: 'flex:1' }, C.coverMs == null ? 'Cover: Instagram picks' : `Cover: ${(C.coverMs / 1000).toFixed(1)}s`);
-  const drawPreview = () => {
-    ptabs.replaceChildren(...PREVIEW_ORDER.map((p) => el('button', { class: C.platform === p ? 'on' : '', title: PREVIEW_LABEL[p], html: svgLogo(p), on: { click: () => { C.platform = p; drawPreview(); } } })));
-    label.textContent = PREVIEW_LABEL[C.platform];
-    note.textContent = PREVIEW_NOTE[C.platform];
-    phoneWrap.replaceChildren(phone(C.platform, video, C.caption));
-  };
-  drawPreview();
-  const coverRow = el('div', { class: 'row' }, coverLbl, btn('Use this frame', 'secondary small', () => { C.coverMs = Math.round(video.currentTime * 1000); coverLbl.textContent = `Cover: ${video.currentTime.toFixed(1)}s`; toast('Cover frame set'); }));
-  const playRow = el('div', { class: 'row small muted', style: 'gap:8px;margin-top:8px' }, btn('Pause', 'secondary small', (e) => { if (video.paused) { video.play(); e.target.textContent = 'Pause'; } else { video.pause(); e.target.textContent = 'Play'; } }), el('span', {}, 'Pause on the frame you want as the cover.'));
-  grid.append(el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, label, phoneWrap, note, el('div', { class: 'card', style: 'padding:12px' }, coverRow, playRow)));
-
-  // ---- details column
-  const dests = el('div', { class: 'card flush' }, el('div', { class: 'row', style: 'padding:14px 18px' }, el('h2', { class: 'h3', style: 'flex:1' }, 'Destinations'), el('span', { class: 'small faint' }, '1 of 5 available')));
-  dests.append(el('div', { class: 'dest-row' }, el('button', { class: 'toggle on', disabled: true, 'aria-label': 'Instagram on' }), badge('instagram'), el('div', { class: 'who' }, el('b', {}, 'Instagram'), el('div', { class: 'small faint' }, handle())), el('span', { class: 'chip' }, 'Reel'), el('span', { class: 'pill' }, 'Queue posts it at the time')));
-  for (const id of ['youtubeshorts', 'tiktok', 'facebook', 'linkedin']) {
-    const p = PLATFORMS.find((x) => x.id === (id === 'youtubeshorts' ? 'youtube' : id));
-    dests.append(el('div', { class: 'dest-row off' }, el('button', { class: 'toggle', disabled: true }), badge(id), el('div', { class: 'who' }, el('b', {}, id === 'youtubeshorts' ? 'YouTube Shorts' : p.name), el('div', { class: 'small faint' }, p.delivery)), el('span', { class: 'pill soon' }, 'Coming soon')));
-  }
-  const cap = el('textarea', { class: 'input', maxlength: 2200, placeholder: 'Write a caption…' }); cap.value = C.caption;
-  const counters = el('div', { class: 'row small faint mono', style: 'gap:14px' });
-  const count = () => {
-    const t = cap.value; const tags = (t.match(/#[\p{L}\p{N}_]+/gu) || []).length; const ments = (t.match(/@[\w.]+/g) || []).length;
-    counters.replaceChildren(el('span', { class: 'counter' + (t.length > 2200 ? ' over' : '') }, `${t.length.toLocaleString()} / 2,200`), el('span', { class: 'counter' + (tags > 30 ? ' over' : '') }, `${tags} / 30 hashtags`), el('span', { class: 'counter' + (ments > 20 ? ' over' : '') }, `${ments} / 20 mentions`));
-  };
-  cap.addEventListener('input', () => { C.caption = cap.value; count(); const capEl = phoneWrap.querySelector('[data-cap]'); if (capEl) capEl.textContent = previewCaption(C.platform, C.caption); });
-  count();
-  const capCard = el('div', { class: 'card stack', style: 'gap:10px' }, el('h2', { class: 'h3' }, 'Caption'), cap, counters);
-  if (!C.date) { const d = new Date(Date.now() + 3600e3); d.setMinutes(d.getMinutes() < 30 ? 30 : 60, 0, 0); C.date = toDateInput(d); C.time = toTimeInput(d); }
-  const date = el('input', { class: 'input', type: 'date', value: C.date, min: toDateInput(new Date()), on: { change: (e) => (C.date = e.target.value) } });
-  const time = el('input', { class: 'input', type: 'time', value: C.time, on: { change: (e) => (C.time = e.target.value) } });
-  const quick = el('div', { class: 'quick' }, el('span', { class: 'small muted' }, 'Quick:'), ...[['12:00', '12:00 PM'], ['18:30', '6:30 PM'], ['21:00', '9:00 PM']].map(([v, l]) => el('button', { type: 'button', on: { click: () => { time.value = v; C.time = v; } } }, l)));
-  const whenCard = el('div', { class: 'card stack', style: 'gap:10px' }, el('h2', { class: 'h3' }, 'When'), el('div', { class: 'row', style: 'gap:12px' }, el('label', { class: 'field', style: 'flex:1' }, el('span', {}, 'Date'), date), el('label', { class: 'field', style: 'flex:1' }, el('span', {}, 'Time'), time)), quick, el('div', { class: 'small faint' }, `${tz} · Queue hands the video to Instagram ${mins(S.config?.stageWindowMin ?? 120)} early so it's processed on time.`));
-  grid.append(el('div', { class: 'stack' }, dests, capCard, whenCard));
-
-  // ---- quality column
-  grid.append(qualityPanel(up));
-  c.append(grid);
-};
-
-function renderDrop(c) {
-  const input = el('input', { type: 'file', accept: 'video/*', class: 'hidden', on: { change: (e) => e.target.files[0] && doUpload(e.target.files[0]) } });
-  const status = el('div', { class: 'muted' }, 'MP4 or MOV · 3 s – 15 min · up to 300 MB · 9:16 looks best');
-  const dz = el('div', { class: 'dropzone', role: 'button', tabindex: 0, on: { click: () => input.click(), keydown: (e) => { if (e.key === 'Enter') input.click(); } } },
-    el('div', { class: 'bubble', html: svgIcon('upload') }), el('div', { class: 'h2' }, 'Drop a video'), status, el('div', { class: 'row', style: 'gap:10px;margin-top:6px' }, btn('Choose file', 'primary', (e) => { e.stopPropagation(); input.click(); })), input);
-  for (const t of ['dragenter', 'dragover']) dz.addEventListener(t, (e) => { e.preventDefault(); dz.classList.add('over'); });
-  for (const t of ['dragleave', 'drop']) dz.addEventListener(t, (e) => { e.preventDefault(); dz.classList.remove('over'); });
-  dz.addEventListener('drop', (e) => e.dataTransfer.files[0] && doUpload(e.dataTransfer.files[0]));
-  const how = el('div', { class: 'grid', style: 'grid-template-columns:repeat(3,minmax(0,1fr));margin-top:16px' }, ...[['1', 'We check it', "Every property compared with Instagram's Reels spec — resolution, codec, colour, bitrate, length."], ['2', "We fix only what's needed", 'Cheapest safe fix first: lossless rewrap → audio-only fix → one clean encode. Never more than one.'], ['3', 'Instagram gets your file', 'No third-party compression in between. Instagram receives exactly the file Queue prepared.']].map(([n, t, d]) => el('div', { class: 'card stack', style: 'gap:6px' }, el('div', { class: 'label' }, `Step ${n}`), el('h3', { class: 'h3' }, t), el('div', { class: 'small muted' }, d))));
-  c.append(dz, how);
-  async function doUpload(file) {
-    status.textContent = `Uploading and checking ${file.name}…`;
-    try { C.upload = await api(`/api/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file }); C.coverMs = null; render(); }
-    catch (e) { status.textContent = e.message; toast(e.message, true); }
-  }
-}
-
 const PLAN_TEXT = {
   none: ['Ships untouched', 'Instagram gets your original file, exactly as it is.'],
   remux: ['Lossless fix', 'Rewrapped so Instagram accepts it — zero quality change.'],
@@ -632,32 +939,17 @@ function phone(platform, video, caption) {
   ph.append(ui);
   return ph;
 }
-function resetComposer() { Object.assign(C, { upload: null, caption: '', date: '', time: '', coverMs: null, platform: 'instagram' }); }
-
-async function schedule() {
-  if (C.busy) return;
-  const when = fromInputs(C.date, C.time);
-  if (!when || when < Date.now()) return toast('Pick a post time in the future', true);
-  if (C.caption.length > 2200) return toast('Caption is over 2,200 characters', true);
-  C.busy = true;
-  const plan = C.upload.result.plan;
-  const steps = [['Checked against Instagram\'s spec', 'done'], [PLAN_TEXT[plan][0], plan === 'none' ? 'done' : 'active'], ['Re-checking the result', 'next'], [`Scheduling for ${fmtWhen(when.toISOString())}`, 'next']];
-  let setStep;
-  const close = modal((m) => {
-    const list = el('div', { class: 'stack', style: 'gap:12px' });
-    setStep = (states) => list.replaceChildren(...steps.map(([t], i) => el('div', { class: `step ${states[i]}` }, el('div', { class: 'mark' }, states[i] === 'done' ? '✓' : ''), el('div', {}, el('div', { style: states[i] === 'next' ? '' : 'font-weight:500' }, t)))));
-    setStep(steps.map((s) => s[1]));
-    m.append(el('h2', { class: 'h2' }, 'Preparing your Reel'), el('div', { class: 'small muted mono' }, C.upload.name.replace(/^\d+-/, '')), list, el('div', { class: 'inset small muted' }, 'Your original file is never changed. Queue works on a copy.'));
-  });
+// Reopen a video that's already in the Library (from Calendar, Library, or the drop screen).
+async function openInComposer(name, date, time) {
   try {
-    const r = await api('/api/schedule', json('POST', { name: C.upload.name, at: when.toISOString(), caption: C.caption, coverOffsetMs: C.coverMs }));
-    setStep(['done', 'done', 'done', 'done']);
-    await new Promise((res) => setTimeout(res, 600));
-    close(); resetComposer(); toast(`Scheduled for ${fmtWhen(r.post.publishAt)}`);
-    await load(); location.hash = '#/queue';
-  } catch (e) { close(); toast(e.message, true); }
-  finally { C.busy = false; }
+    const up = await api(`/api/media/${encodeURIComponent(name)}`);
+    resetComposer();
+    C.upload = up;
+    if (date) { C.date = date; C.time = time || USUAL_DEFAULT; }
+    if (location.hash === '#/new') render(); else location.hash = '#/new';
+  } catch (e) { toast(e.message, true); }
 }
+function resetComposer() { Object.assign(C, { upload: null, caption: '', date: '', time: '', coverMs: null, platform: 'instagram', format: 'video', dests: null, capTab: 'all', captions: {}, photos: [], crop: 'per', frames: [], remind: false }); }
 
 // ---------------------------------------------------------------- boot
 (async function boot() {

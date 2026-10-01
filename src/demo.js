@@ -1,0 +1,192 @@
+// Builds the demo account: `npm run demo` → http://localhost:4401
+//
+// Everything lives in demo/ (git-ignored) and never touches your real queue, media or login.
+//   demo/assets/   photos (from Unsplash, see credits.json). Missing? Videos fall back to
+//                  generated gradients, so the demo still runs on a fresh clone.
+//   demo/media/    short "Ken Burns" videos made from those photos — a mix of 4K HDR, clean
+//                  1080p, and files that need a fix, so every quality state shows up.
+//   demo/data/     queue.json (re-dated on every start so "Today" is always today),
+//                  demo.json (the connected accounts), quality.json + quality/ (REAL VMAF
+//                  scores: each posted clip is re-encoded the way a platform would serve it,
+//                  then measured with the same code as `queue compare`).
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { compare } from './quality.js';
+
+const run = promisify(execFile);
+
+// name, photo, seconds, format, motion. Formats: clean | nofast (needs a lossless rewrap) |
+// hiaudio (audio fix only) | 4k (one clean encode) | hdr (4K HLG → SDR + encode)
+const VIDEOS = [
+  ['worship-night.mov', 'worship', 12, 'hdr', 'in'],
+  ['coffee-bts.mp4', 'coffeepour', 10, 'nofast', 'out'],
+  ['marathon-wk6.mov', 'runner', 12, 'clean', 'in'],
+  ['open-mic.mp4', 'mic', 12, 'hiaudio', 'up'],
+  ['pour-over-60.mov', 'pourover', 10, 'hdr', 'in'],
+  ['weekly-recap.mp4', 'barista', 10, 'clean', 'out'],
+  ['sunday-recap.mov', 'concert', 10, 'clean', 'in'],
+  ['latte-fails.mp4', 'latte', 10, 'clean', 'up'],
+  ['youth-night.mov', 'youth', 10, 'clean', 'out'],
+  ['camera-test.mp4', 'camera', 10, 'clean', 'in'],
+  ['friday-crew.mp4', 'friends', 10, 'clean', 'out'],
+  ['race-morning.mov', 'trail', 10, 'clean', 'in'],
+  ['espresso-dialin.mov', 'espresso', 8, 'hdr', 'out'],
+  ['airport-bit.mp4', 'airport', 10, 'clean', 'up'],
+  ['q-and-a.mov', 'podcast', 10, '4k', 'in'],
+  ['b-roll-01.mov', 'city', 8, '4k', 'out'],
+  ['drums-story.mp4', 'drums', 10, 'clean', 'in'],
+];
+
+export const DEMO_ACCOUNT = { username: 'tommyclaffey', name: 'Tommy Claffey', kind: 'Creator', avatar: 'avatar.jpg' };
+export const DEMO_PLATFORMS = {
+  instagram: { state: 'connected', handle: '@tommyclaffey · Creator' },
+  youtube: { state: 'connected', handle: 'Tommy Claffey' },
+  facebook: { state: 'connected', handle: 'Tommy Claffey (Page)' },
+  tiktok: { state: 'drafts', handle: '@tommyclaffey' },
+  linkedin: { state: 'connected', handle: 'Tommy Claffey · profile', note: 'Key renews in 41d' },
+  threads: { state: 'available' },
+  pinterest: { state: 'available' },
+  bluesky: { state: 'available' },
+  x: { state: 'paid' },
+};
+
+async function makeVideo(assets, media, [name, photo, secs, format, motion]) {
+  const out = join(media, name);
+  if (existsSync(out)) return;
+  const big = format === 'hdr' || format === '4k';
+  const [w, h] = big ? [2160, 3840] : [1080, 1920];
+  const n = secs * 30;
+  const zoom = motion === 'out' ? `1.16-0.16*on/${n}` : `1+0.16*on/${n}`;
+  const y = motion === 'up' ? `(ih-ih/zoom)*(1-on/${n})` : 'ih/2-(ih/zoom/2)';
+  const img = join(assets, `${photo}.jpg`);
+  const input = existsSync(img) ? ['-i', img] : ['-f', 'lavfi', '-i', `gradients=s=1080x1920:n=3:seed=${name.length}:duration=0.04`];
+  const vf = `crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale=${w * 2}:${h * 2},zoompan=z='${zoom}':x='iw/2-(iw/zoom/2)':y='${y}':d=${n}:s=${w}x${h}:fps=30,noise=alls=7:allf=t,format=${format === 'hdr' ? 'yuv420p10le' : 'yuv420p'}`;
+  const video = format === 'hdr'
+    ? ['-c:v', 'libx265', '-preset', 'ultrafast', '-crf', '20', '-tag:v', 'hvc1', '-x265-params', 'colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc:log-level=error', '-color_primaries', 'bt2020', '-color_trc', 'arib-std-b67', '-colorspace', 'bt2020nc']
+    : ['-c:v', 'libx264', '-preset', 'fast', '-crf', big ? '22' : '19', '-maxrate', big ? '40M' : '14M', '-bufsize', '28M', '-profile:v', 'high'];
+  const rate = format === 'hiaudio' ? '96000' : '48000';
+  await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...input, '-f', 'lavfi', '-i', `anullsrc=r=${rate}:cl=stereo`,
+    '-filter_complex', `[0:v]${vf}[v]`, '-map', '[v]', '-map', '1:a', '-t', String(secs), ...video,
+    '-c:a', 'aac', '-b:a', '160k', ...(format === 'nofast' ? [] : ['-movflags', '+faststart']), out], { maxBuffer: 1 << 24 });
+}
+
+// How each route ends up on the viewer's phone. "Queue" = the platform re-encodes Queue's clean
+// file once. "app" = the phone app compresses to 720p first, then the platform encodes it again.
+const ROUTES = {
+  instagram: ['-b:v', '3.5M', '-maxrate', '4M', '-bufsize', '8M'],
+  facebook: ['-b:v', '4M', '-maxrate', '4.5M', '-bufsize', '9M'],
+  linkedin: ['-b:v', '5M', '-maxrate', '6M', '-bufsize', '12M'],
+  youtubeshorts: ['-b:v', '6M', '-maxrate', '7M', '-bufsize', '14M'],
+};
+async function serve(src, out, platform, viaApp) {
+  if (existsSync(out)) return;
+  const enc = (i, o, args, scale) => run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', i, '-vf', `scale=${scale},format=yuv420p`, '-c:v', 'libx264', '-preset', 'medium', ...args, '-an', '-movflags', '+faststart', o], { maxBuffer: 1 << 24 });
+  if (!viaApp) return enc(src, out, ROUTES[platform], '1080:1920');
+  const mid = out.replace(/\.mp4$/, '.app720.mp4');
+  await enc(src, mid, ['-b:v', '2M', '-maxrate', '2.5M', '-bufsize', '5M'], '720:1280');
+  await enc(mid, out, ROUTES[platform], '1080:1920');
+}
+
+async function pool(items, size, fn) {
+  const queue = [...items];
+  await Promise.all(Array.from({ length: size }, async () => { while (queue.length) await fn(queue.shift()); }));
+}
+
+function seedPosts(media, assets) {
+  const now = new Date();
+  const at = (days, h, m = 0) => { const d = new Date(now); d.setDate(d.getDate() + days); d.setHours(h, m, 0, 0); return d.toISOString(); };
+  const later = (hours) => { const d = new Date(now.getTime() + hours * 3600e3); d.setMinutes(d.getMinutes() < 30 ? 30 : 60, 0, 0); return d.toISOString(); };
+  const ago = (iso, mins) => new Date(new Date(iso).getTime() - mins * 60e3).toISOString();
+  const FORMAT = { instagram: 'Reel', youtubeshorts: 'Short', tiktok: 'Video', facebook: 'Reel', linkedin: 'Video' };
+  const post = (id, file, caption, publishAt, status, platforms, fix, extra = {}) => {
+    const log = [{ at: ago(publishAt, 60 * 26), msg: 'queued' }, { at: ago(publishAt, 60 * 26 - 1), msg: `prepared: ${fix}` }];
+    if (['staged', 'ready', 'published'].includes(status)) log.push({ at: ago(publishAt, 120), msg: 'staged rupload' });
+    if (['ready', 'published'].includes(status)) log.push({ at: ago(publishAt, 117), msg: 'Instagram finished processing' });
+    if (status === 'published') log.push({ at: new Date(new Date(publishAt).getTime() + 12e3).toISOString(), msg: `published 1789${id.slice(1)} (12s after target)` });
+    if (status === 'missed') log.push({ at: new Date(new Date(publishAt).getTime() + 5 * 3600e3).toISOString(), msg: 'missed by 5h' });
+    if (status === 'failed') log.push({ at: ago(publishAt, 100), msg: "error: Instagram couldn't process the video" });
+    const dest = (p) => ({ platform: p, format: FORMAT[p], status: status === 'published' ? (p === 'tiktok' ? 'drafts' : 'posted') : status === 'failed' && p !== 'instagram' ? 'scheduled' : status === 'missed' && ['youtubeshorts', 'facebook'].includes(p) ? 'posted' : status });
+    return {
+      id, platform: 'instagram_reels', kind: 'reel', file: file && join(media, file), source: file, caption, coverOffsetMs: null, fix,
+      publishAt, status, containerId: null, mediaId: status === 'published' ? `1789${id.slice(1)}` : null,
+      permalink: status === 'published' ? 'https://www.instagram.com/' : null, attempts: status === 'failed' ? 3 : 0,
+      error: status === 'failed' ? "Instagram couldn't process the video" : status === 'missed' ? `Missed its ${new Date(publishAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} slot by 5h (Mac off or asleep). Post now, pick a new time, or remove it.` : null,
+      ...(status === 'published' ? { publishedAt: new Date(new Date(publishAt).getTime() + 12e3).toISOString() } : {}),
+      platforms, destinations: platforms.map(dest), log, ...extra,
+    };
+  };
+  const P = [
+    post('d01', 'worship-night.mov', 'Worship night highlights 🙌 Grateful for this room and everyone who showed up. Full set on the channel. #sundayservice #worship', later(2.5), 'ready', ['instagram', 'youtubeshorts', 'tiktok', 'facebook', 'linkedin'], 'hdr'),
+    post('d02', 'coffee-bts.mp4', 'Behind the scenes: new coffee setup ☕', later(5), 'staged', ['instagram', 'tiktok'], 'remux'),
+    post('d03', 'marathon-wk6.mov', 'Marathon training week 6 — long run vlog', at(1, 12), 'queued', ['youtubeshorts', 'instagram'], 'none'),
+    post('d04', 'open-mic.mp4', 'Stand-up open mic clip (3 min) — the airport bit finally landed', at(1, 19, 15), 'queued', ['tiktok', 'instagram', 'youtubeshorts'], 'audio-only'),
+    post('d05', 'pour-over-60.mov', 'Pour-over recipe in 60 seconds', at(2, 8), 'queued', ['instagram', 'tiktok', 'youtubeshorts', 'facebook'], 'hdr'),
+    post('d06', 'weekly-recap.mp4', 'Weekly recap', at(-2, 18, 30), 'published', ['instagram', 'linkedin', 'facebook'], 'none'),
+    post('d07', 'sunday-recap.mov', 'Sunday recap — worship night', at(-3, 18, 30), 'missed', ['instagram', 'facebook'], 'none'),
+    post('d08', 'pour-over-60.mov', 'Pour-over recipe (v1)', at(-1, 12), 'failed', ['instagram', 'tiktok'], 'hdr'),
+    post('d09', 'latte-fails.mp4', 'Latte art fails compilation ☕😅', at(10, 8), 'queued', ['instagram', 'tiktok'], 'none'),
+    post('d10', 'youth-night.mov', 'Youth night recap', at(13, 18, 30), 'queued', ['instagram', 'facebook'], 'none'),
+    post('d11', 'camera-test.mp4', 'New camera test — FX3 + 35mm, straight out of camera', at(-5, 18, 30), 'published', ['youtubeshorts', 'instagram'], 'none'),
+    post('d12', 'friday-crew.mp4', 'Friday night with the crew', at(-7, 20), 'published', ['instagram', 'tiktok', 'facebook'], 'none'),
+    post('d15', 'marathon-wk6.mov', 'Long run recap — 16 miles', at(-9, 7, 30), 'published', ['instagram'], 'none'),
+    post('d16', 'coffee-bts.mp4', 'Coffee corner tour', at(-12, 12), 'published', ['instagram', 'tiktok'], 'remux'),
+    post('d17', 'latte-fails.mp4', 'Latte art progress — week 3', at(17, 9), 'queued', ['instagram'], 'none'),
+    post('d18', 'youth-night.mov', 'Youth night worship set', at(20, 18, 30), 'queued', ['instagram', 'youtubeshorts'], 'none'),
+  ];
+  // Photo carousel + story — only the demo knows these formats so far.
+  const img = (n) => (existsSync(join(assets, `${n}.jpg`)) ? `${n}.jpg` : null);
+  P.push({ ...post('d13', null, 'A week in 6 frames 📸 worship night, the long run, open mic and too much coffee.', at(2, 9), 'queued', ['instagram', 'tiktok', 'linkedin', 'facebook'], 'none'), kind: 'photos', images: ['worship', 'runner', 'mic', 'latte', 'pourover', 'city'].map(img).filter(Boolean) });
+  P.push({ ...post('d14', null, "Tonight's show 🥁", at(3, 21), 'queued', ['instagram', 'facebook'], 'none'), kind: 'story', images: ['drums', 'concert', 'youth'].map(img).filter(Boolean) });
+  for (const p of P) if (p.kind !== 'reel') p.destinations = p.platforms.map((pl) => ({ platform: pl, format: p.kind === 'story' ? 'Story' : pl === 'instagram' ? 'Carousel' : pl === 'tiktok' ? 'Photo post' : pl === 'linkedin' ? 'Multi-image' : 'Multi-photo', status: 'queued' }));
+  return P;
+}
+
+// Which posted clips get measured, and through which routes.
+const MEASURE = [
+  ['d06', 'weekly-recap.mp4', [['instagram', false], ['instagram', true], ['linkedin', false], ['facebook', false]]],
+  ['d11', 'camera-test.mp4', [['instagram', false], ['instagram', true], ['youtubeshorts', false]]],
+  ['d12', 'friday-crew.mp4', [['instagram', false], ['facebook', false]]],
+  ['d15', 'marathon-wk6.mov', [['instagram', false]]],
+  ['d16', 'coffee-bts.mp4', [['instagram', false], ['instagram', true]]],
+];
+
+export async function buildDemo(root, { log = console.log } = {}) {
+  const dir = join(root, 'demo');
+  const assets = join(dir, 'assets'); const media = join(dir, 'media'); const data = join(dir, 'data'); const qdir = join(data, 'quality');
+  for (const d of [assets, media, data, qdir]) mkdirSync(d, { recursive: true });
+
+  const missing = VIDEOS.filter(([n]) => !existsSync(join(media, n)));
+  if (missing.length) log(`  Making ${missing.length} demo videos (first run only, about a minute)…`);
+  await pool(missing, 3, (v) => makeVideo(assets, media, v));
+
+  const posts = seedPosts(media, assets);
+  writeFileSync(join(data, 'queue.json'), JSON.stringify(posts, null, 1));
+  writeFileSync(join(data, 'demo.json'), JSON.stringify({ account: DEMO_ACCOUNT, platforms: DEMO_PLATFORMS }, null, 1));
+
+  // Real measurements, cached by the clip's size so a rebuilt video is re-measured.
+  const qfile = join(data, 'quality.json');
+  const old = existsSync(qfile) ? JSON.parse(readFileSync(qfile, 'utf8')) : [];
+  const jobs = MEASURE.flatMap(([postId, file, routes]) => routes.map(([platform, viaApp]) => ({ postId, file, platform, viaApp, id: `${postId}-${platform}${viaApp ? '-app' : ''}` })));
+  const todo = jobs.filter((j) => !old.some((q) => q.id === j.id && q.bytes === statSync(join(media, j.file)).size));
+  if (todo.length) log(`  Measuring ${todo.length} quality comparisons with VMAF (first run only)…`);
+  const fresh = [];
+  await pool(todo, 2, async (j) => {
+    const served = `${j.id}.mp4`;
+    await serve(join(media, j.file), join(qdir, served), j.platform, j.viaApp);
+    const result = await compare(join(media, j.file), join(qdir, served));
+    fresh.push({ id: j.id, postId: j.postId, platform: j.platform, route: j.viaApp ? 'app' : 'queue', original: j.file, served, bytes: statSync(join(media, j.file)).size, result });
+  });
+  const all = [...old.filter((q) => jobs.some((j) => j.id === q.id) && !fresh.some((f) => f.id === q.id)), ...fresh];
+  // Re-date measurements to just after each post went out.
+  for (const q of all) { const p = posts.find((x) => x.id === q.postId); q.at = p ? new Date(new Date(p.publishAt).getTime() + 5 * 60e3).toISOString() : q.at; }
+  writeFileSync(qfile, JSON.stringify(all, null, 1));
+  for (const p of posts) {
+    const q = all.find((x) => x.postId === p.id && x.platform === 'instagram' && x.route === 'queue');
+    if (q) p.log.push({ at: q.at, msg: `quality measured: VMAF ${q.result.vmaf}` });
+    for (const d of p.destinations) { const m = all.find((x) => x.postId === p.id && x.platform === d.platform && x.route === 'queue'); if (m) d.vmaf = m.result.vmaf; }
+  }
+  writeFileSync(join(data, 'queue.json'), JSON.stringify(posts, null, 1));
+  return { dir, media, data };
+}
