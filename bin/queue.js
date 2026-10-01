@@ -142,7 +142,7 @@ try {
       console.log(`  Clearable: ${human(summary.clearable.bytes)} — ${summary.posted.count} from posted Reels, ${summary.unused.count} uploaded but never scheduled`);
       if (!opt.clear) {
         if (summary.clearable.count) console.log('\n  To clear them: node bin/queue.js storage --clear');
-        console.log("  (Only Queue's own copies in ~/Coding/uncut/media. Your originals are never touched.)\n");
+        console.log("  (Only Queue's own copies in ~/Coding/queue/media. Your originals are never touched.)\n");
         break;
       }
       const r = clearMedia(mediaDir, cfg.queue);
@@ -167,7 +167,7 @@ try {
         autostart.enable(ROOT);
         console.log(`\n✅ Autostart is ON. Queue is running in the background now, and will start`);
         console.log(`   by itself whenever you log in. Open http://localhost:${cfg.port}`);
-        console.log(`   Log: ~/Coding/uncut/data/queue.log   ·   To turn off: node bin/queue.js autostart off\n`);
+        console.log(`   Log: ~/Coding/queue/data/queue.log   ·   To turn off: node bin/queue.js autostart off\n`);
       } else if (action === 'off') {
         autostart.disable();
         console.log('\n⏹  Autostart is OFF. Queue is stopped and won\'t start at login.\n   Run it by hand any time with: npm start\n');
