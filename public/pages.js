@@ -392,7 +392,7 @@ function videoComposer(c) {
   if (!shown.includes(C.platform)) C.platform = shown[0];
   const capFor = (p) => (p === 'youtubeshorts' && C.captions.youtubeshorts) || (p !== 'instagram' && C.captions[p]) || C.caption;
   const drawPreview = () => {
-    ptabs.replaceChildren(...shown.map((p) => el('button', { class: C.platform === p ? 'on' : '', title: PREVIEW_LABEL[p], html: svgLogo(p), on: { click: () => { C.platform = p; drawPreview(); } } })));
+    ptabs.replaceChildren(...shown.map((p) => el('button', { class: C.platform === p ? 'on' : '', title: PREVIEW_LABEL[p], 'aria-label': `Preview as ${PREVIEW_LABEL[p]}`, 'aria-pressed': String(C.platform === p), html: svgLogo(p), on: { click: () => { C.platform = p; drawPreview(); } } })));
     label2.textContent = PREVIEW_LABEL[C.platform]; note.textContent = PREVIEW_NOTE[C.platform];
     phoneWrap.replaceChildren(phone(C.platform, video, capFor(C.platform)));
   };
@@ -400,7 +400,7 @@ function videoComposer(c) {
   const coverLbl = el('span', { class: 'small muted', style: 'flex:1' }, C.coverMs == null ? 'Cover: Instagram picks' : `Cover: ${(C.coverMs / 1000).toFixed(1)}s`);
   const coverRow = el('div', { class: 'row' }, coverLbl, btn('Use this frame', 'secondary small', () => { C.coverMs = Math.round(video.currentTime * 1000); coverLbl.textContent = `Cover: ${video.currentTime.toFixed(1)}s`; toast('Cover frame set'); }));
   const playRow = el('div', { class: 'row small muted', style: 'gap:8px;margin-top:8px' }, btn('Pause', 'secondary small', (e) => { if (video.paused) { video.play(); e.target.textContent = 'Pause'; } else { video.pause(); e.target.textContent = 'Play'; } }), el('span', {}, 'Pause on the frame you want as the cover.'));
-  grid.append(el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, uiToggle(drawPreview), label2, phoneWrap, note, el('div', { class: 'card', style: 'padding:12px' }, coverRow, playRow)));
+  grid.append(el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, previewToggles(drawPreview), label2, phoneWrap, note, el('div', { class: 'card', style: 'padding:12px' }, coverRow, playRow)));
 
   // destinations + caption + when
   const avail = multi ? VIDEO_DESTS : ['instagram', 'youtubeshorts', 'tiktok', 'facebook', 'linkedin'];
@@ -531,7 +531,7 @@ function photosComposer(c) {
   const n = C.photos.length;
   topbar('New post', el('span', { class: 'mono small' }, `${n} photo${n === 1 ? '' : 's'} · carousel · 1600×2400 originals`), [fmtSeg(), cancelBtn(), btn(`Schedule to ${on.length} platform${on.length === 1 ? '' : 's'}`, 'primary', () => scheduleDemo('photos', C.photos, on), { disabled: !n || !on.length })]);
   if (!['instagram', 'tiktok', 'linkedin', 'facebook'].includes(C.platform)) C.platform = 'instagram';
-  const ptabs = el('div', { class: 'ptabs' }, ...['instagram', 'tiktok', 'linkedin', 'facebook'].map((p) => el('button', { class: C.platform === p ? 'on' : '', html: svgLogo(p), title: PNAME[p], on: { click: () => { C.platform = p; render(); } } })));
+  const ptabs = el('div', { class: 'ptabs' }, ...['instagram', 'tiktok', 'linkedin', 'facebook'].map((p) => el('button', { class: C.platform === p ? 'on' : '', html: svgLogo(p), title: PNAME[p], 'aria-label': `Preview as ${PNAME[p]}`, 'aria-pressed': String(C.platform === p), on: { click: () => { C.platform = p; render(); } } })));
   const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, uiToggle(render), photoPhone(C.platform, C.photos), el('div', { class: 'preview-note' }, { instagram: "Instagram crops every photo to the first photo's shape. Queue sets 4:5 for the tallest look.", tiktok: 'TikTok shows photos full-screen at 9:16. Queue fits each one with a soft blurred fill.', linkedin: 'LinkedIn shows a grid in the feed, then the full photos when tapped.', facebook: 'Facebook keeps more pixels than Instagram — up to 2048 wide.' }[C.platform]));
   const crop = el('div', { class: 'seg small-seg' }, ...[['per', 'Per platform'], ['45', '4:5'], ['11', '1:1'], ['916', '9:16']].map(([k, l]) => el('button', { class: C.crop === k ? 'on' : '', on: { click: () => { C.crop = k; render(); } } }, l)));
   const photosCard = el('div', { class: 'card stack', style: 'gap:10px' }, el('div', { class: 'row' }, el('h2', { class: 'h3', style: 'flex:1' }, 'Photos'), el('span', { class: 'small faint' }, 'Crop'), crop), stripTiles(C.photos, (i) => (i === 0 ? 'Cover' : String(i + 1)), () => photoPicker(C.photos, 35)), el('div', { class: 'small faint' }, 'Drag to reorder · the first photo is the cover everywhere'));
@@ -572,8 +572,8 @@ function storyComposer(c) {
   const n = C.frames.length;
   topbar('New post', el('span', { class: 'mono small' }, `${n} frame${n === 1 ? '' : 's'} · ${n * 5}s total · 9:16`), [fmtSeg(), cancelBtn(), btn(`Schedule to ${on.length} platform${on.length === 1 ? '' : 's'}`, 'primary', () => scheduleDemo('story', C.frames, on), { disabled: !n || !on.length })]);
   if (!['instagram', 'facebook'].includes(C.platform)) C.platform = 'instagram';
-  const ptabs = el('div', { class: 'ptabs' }, ...['instagram', 'facebook'].map((p) => el('button', { class: C.platform === p ? 'on' : '', html: svgLogo(p), title: PNAME[p], on: { click: () => { C.platform = p; render(); } } })));
-  const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, uiToggle(render), storyPhone(C.frames), el('div', { class: 'preview-note' }, 'Tap the preview to step through frames. The top and bottom 14% sit under the story bar and reply box.'));
+  const ptabs = el('div', { class: 'ptabs' }, ...['instagram', 'facebook'].map((p) => el('button', { class: C.platform === p ? 'on' : '', html: svgLogo(p), title: PNAME[p], 'aria-label': `Preview as ${PNAME[p]}`, 'aria-pressed': String(C.platform === p), on: { click: () => { C.platform = p; render(); } } })));
+  const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, previewToggles(render), storyPhone(C.frames), el('div', { class: 'preview-note' }, 'Tap the preview to step through frames. The top and bottom 14% sit under the story bar and reply box.'));
   const frames = el('div', { class: 'card stack', style: 'gap:10px' }, el('h2', { class: 'h3' }, 'Frames'), stripTiles(C.frames, () => '5s Photo', () => photoPicker(C.frames, 10)), el('div', { class: 'small faint' }, 'Each photo shows for 5 seconds. Frames post in order, one after another.'));
   const dests = el('div', { class: 'card flush' }, el('div', { class: 'row', style: 'padding:14px 18px' }, el('h2', { class: 'h3', style: 'flex:1' }, 'Destinations'), el('span', { class: 'small faint' }, '2 possible')));
   for (const [p, fmt] of [['instagram', 'Story'], ['facebook', 'Page story']]) dests.append(el('div', { class: 'dest-row' }, toggleBtn(C.dests.has(p), () => { C.dests.has(p) ? C.dests.delete(p) : C.dests.add(p); render(); }), badge(p), el('div', { class: 'who' }, el('b', {}, PNAME[p]), el('div', { class: 'small faint' }, S.extras.platforms[p]?.handle)), el('span', { class: 'chip' }, fmt), el('span', { class: 'pill' }, `Queue posts at ${usualLabel()}`)));
@@ -593,6 +593,7 @@ function storyPhone(frames) {
   const bars = el('div', { class: 'story-bars' }, ...frames.map((_, k) => el('i', { class: k === 0 ? 'on' : '' })));
   const me = S.extras?.account?.username || 'yourname';
   if (!previewUI) ph.append(img); else ph.append(img, el('div', { class: 'shade-t' }), bars, el('div', { class: 'story-head' }, el('img', { class: 'av', src: imgUrl(S.extras?.account?.avatar || frames[0]), alt: '' }), el('b', {}, me), el('span', { class: 'faint-w' }, 'Scheduled')));
+  if (previewSafe) ph.append(safeOverlay('story'));
   ph.addEventListener('click', () => { i = (i + 1) % frames.length; img.src = imgUrl(frames[i]); [...bars.children].forEach((b, k) => b.classList.toggle('on', k <= i)); });
   return ph;
 }

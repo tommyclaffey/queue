@@ -1,5 +1,6 @@
 // Reads a video's real technical properties with ffprobe.
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { openSync, readSync, closeSync, statSync } from 'node:fs';
 
 export function hasFfmpeg() {
@@ -18,11 +19,19 @@ function parseRate(r) {
   return d ? n / d : n;
 }
 
+const ARGS = (file) => ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file];
+
 export function probe(file) {
-  const out = execFileSync('ffprobe', [
-    '-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file,
-  ]);
-  const data = JSON.parse(out.toString());
+  return describe(file, JSON.parse(execFileSync('ffprobe', ARGS(file)).toString()));
+}
+
+// Same result, without blocking the server while ffprobe runs (the Library lists many files).
+export async function probeAsync(file) {
+  const { stdout } = await promisify(execFile)('ffprobe', ARGS(file), { maxBuffer: 1 << 24 });
+  return describe(file, JSON.parse(stdout));
+}
+
+function describe(file, data) {
   const v = data.streams.find((s) => s.codec_type === 'video');
   const a = data.streams.find((s) => s.codec_type === 'audio');
 

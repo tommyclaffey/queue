@@ -104,7 +104,7 @@ Only one scheduler runs at a time (`data/scheduler.lock`). While it runs, the Ma
 ## Tests
 
 ```bash
-npm test     # 84 tests, ~60s
+npm test     # 96 tests, ~60s
 ```
 
 - `test/mock-meta.js` is a strict fake of Meta's Graph + rupload APIs, built from Meta's docs. It checks
@@ -132,6 +132,7 @@ src/specs.js      Instagram Reels spec
 src/probe.js      ffprobe + moov-atom check
 src/preflight.js  spec check → least-destructive fix plan
 src/conform.js    remux / audio / re-encode / HDR→SDR
+src/photo.js      photos → JPEG · sRGB · Instagram shape (sips); for carousels and stories
 src/instagram.js  Meta API client (both logins, retries)
 src/fileshare.js  temporary public links via Cloudflare tunnel
 src/worker.js     scheduler state machine

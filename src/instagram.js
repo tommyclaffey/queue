@@ -156,6 +156,40 @@ export class InstagramClient {
     return created.id;
   }
 
+  // ---- Photo carousels and stories (Meta docs). Photos can ONLY be sent as a public link
+  // (image_url): there is no direct upload for images, so these always use a temporary link.
+
+  // One item of a carousel: a JPEG photo or a video. Returns the item's container id.
+  async stageItem({ imageUrl, videoUrl }) {
+    if (this.dryRun) return `dry_item_${Date.now()}`;
+    if (!imageUrl === !videoUrl) throw new Error('A carousel item needs exactly one of imageUrl or videoUrl');
+    const params = new URLSearchParams({ is_carousel_item: 'true' });
+    if (imageUrl) params.set('image_url', imageUrl);
+    else { params.set('media_type', 'VIDEO'); params.set('video_url', videoUrl); }
+    const { id } = await this.#call(`${this.graph}/${this.userId}/media`, { method: 'POST', body: params });
+    return id;
+  }
+
+  // The carousel itself: lists 2–10 item ids, in order. The caption lives here, not on the items.
+  // Publish THIS id once every item reports FINISHED.
+  async stageCarousel({ children, caption }) {
+    if (this.dryRun) return `dry_carousel_${Date.now()}`;
+    if (!Array.isArray(children) || children.length < 2 || children.length > 10) throw new Error('A carousel needs 2 to 10 items');
+    const params = new URLSearchParams({ media_type: 'CAROUSEL', children: children.join(','), caption: caption || '' });
+    const { id } = await this.#call(`${this.graph}/${this.userId}/media`, { method: 'POST', body: params });
+    return id;
+  }
+
+  // One story frame (photo or video). Stories take no caption; each frame is published on its own.
+  async stageStory({ imageUrl, videoUrl }) {
+    if (this.dryRun) return `dry_story_${Date.now()}`;
+    if (!imageUrl === !videoUrl) throw new Error('A story frame needs exactly one of imageUrl or videoUrl');
+    const params = new URLSearchParams({ media_type: 'STORIES' });
+    params.set(imageUrl ? 'image_url' : 'video_url', imageUrl || videoUrl);
+    const { id } = await this.#call(`${this.graph}/${this.userId}/media`, { method: 'POST', body: params });
+    return id;
+  }
+
   // Step 3.
   async status(containerId) {
     if (this.dryRun) return { code: 'FINISHED' };

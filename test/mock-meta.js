@@ -97,8 +97,39 @@ export function startMockMeta({ version = 'v25.0', userId = '1784', processingPo
     // POST /{ig-user-id}/media  → create container
     if (req.method === 'POST' && edge === 'media') {
       if (id !== userId && id !== 'me') return err(res, 400, 100, 'Unsupported post request. Object does not exist');
-      if (body.get('media_type') !== 'REELS') return err(res, 400, 100, 'media_type must be REELS');
       if ((body.get('caption') || '').length > 2200) return err(res, 400, 100, 'Caption too long');
+      const type = body.get('media_type') || 'IMAGE';
+      const isItem = body.get('is_carousel_item') === 'true';
+      // Carousel: lists existing carousel items. Done processing when every item is.
+      if (type === 'CAROUSEL') {
+        const kids = (body.get('children') || '').split(',').filter(Boolean);
+        if (kids.length < 2 || kids.length > 10) return err(res, 400, 100, 'Carousels need 2 to 10 children');
+        for (const k of kids) if (!state.containers.get(k)?.isItem) return err(res, 400, 100, `Invalid child ${k}: not a carousel item`);
+        const cid = `c${++seq}`;
+        state.containers.set(cid, { params: Object.fromEntries(body), kind: 'carousel', children: kids, bytes: 1, polls: 0, status: 'IN_PROGRESS' });
+        return ok(res, { id: cid });
+      }
+      // Photos, carousel videos and story frames: always fetched from a public URL.
+      if (type === 'IMAGE' || type === 'VIDEO' || type === 'STORIES') {
+        const src = body.get('image_url') || body.get('video_url');
+        if (type === 'IMAGE' && !body.get('image_url')) return err(res, 400, 100, 'image_url is required');
+        if (type === 'VIDEO' && !isItem) return err(res, 400, 100, 'media_type VIDEO is only for carousel items. Use REELS.');
+        if (!src) return err(res, 400, 100, 'Need image_url or video_url');
+        const cid = `c${++seq}`;
+        const image = !!body.get('image_url');
+        const c = { params: Object.fromEntries(body), kind: type === 'STORIES' ? 'story' : 'item', isItem, image, bytes: 0, polls: 0, status: 'IN_PROGRESS' };
+        state.containers.set(cid, c);
+        c.fetching = fetch(src).then(async (r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const buf = Buffer.from(await r.arrayBuffer());
+          // Like Meta: photos must be JPEG.
+          if (image && !(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) { c.status = 'ERROR'; c.error = 'The image format is not supported. Only JPEG images are supported.'; return; }
+          c.bytes = buf.length;
+          c.sha = createHash('sha256').update(buf).digest('hex');
+        }).catch((e) => { c.status = 'ERROR'; c.error = `Failed to download media (${e.message})`; });
+        return ok(res, { id: cid });
+      }
+      if (type !== 'REELS') return err(res, 400, 100, `Unsupported media_type ${type}`);
       const videoUrl = body.get('video_url');
       if (!videoUrl && body.get('upload_type') !== 'resumable') return err(res, 400, 100, 'Need video_url or upload_type=resumable');
       const cid = `c${++seq}`;
@@ -128,6 +159,7 @@ export function startMockMeta({ version = 'v25.0', userId = '1784', processingPo
       }
       const c = state.containers.get(body.get('creation_id'));
       if (!c) return err(res, 400, 100, 'Invalid creation_id');
+      if (c.isItem) return err(res, 400, 100, 'Carousel items cannot be published on their own. Publish the carousel.');
       if (c.status !== 'FINISHED') return err(res, 400, 9007, 'Media ID is not available', { error_subcode: 2207027 });
       c.status = 'PUBLISHED';
       const mid = `m${++seq}`;
@@ -156,6 +188,20 @@ export function startMockMeta({ version = 'v25.0', userId = '1784', processingPo
     if (req.method === 'GET' && !edge) {
       // Container status
       const c = state.containers.get(id);
+      if (c?.kind === 'carousel') {
+        // Polling the carousel moves its items along too (Meta processes them in parallel).
+        const kids = [];
+        for (const k of c.children) {
+          const ch = state.containers.get(k);
+          if (ch.fetching) await ch.fetching;
+          if (ch.status === 'IN_PROGRESS' && ch.bytes && ++ch.polls > processingPolls) ch.status = 'FINISHED';
+          kids.push(ch);
+        }
+        const bad = kids.find((k) => k.status === 'ERROR');
+        if (bad) return ok(res, { status_code: 'ERROR', status: `A carousel item failed: ${bad.error}`, id });
+        if (c.status === 'IN_PROGRESS' && kids.every((k) => k.status === 'FINISHED')) c.status = 'FINISHED';
+        return ok(res, { status_code: c.status, id });
+      }
       if (c) {
         if (c.fetching) await c.fetching;
         if (c.status === 'ERROR') return ok(res, { status_code: 'ERROR', status: c.error, id });

@@ -14,8 +14,9 @@
 </script>
 </head>
 <body>
+<a class="skip" href="#content" onclick="event.preventDefault();document.getElementById('content').focus()">Skip to content</a>
 <div class="app">
-  <aside class="sidebar" id="sidebar">
+  <aside class="sidebar" id="sidebar" aria-label="Queue navigation">
     <div class="brand-row">
       <a class="logo" href="#/dashboard" aria-label="Queue home">
         <span class="logo-mark"><svg viewBox="0 0 24 24" width="12" height="12"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></svg></span>
@@ -27,7 +28,7 @@
     <div class="account" id="account"></div>
     <a class="btn primary block" href="#/new" id="newPostBtn"><span class="ico" data-icon="plus"></span>New post</a>
     <div class="nav-label">Workspace</div>
-    <nav class="nav" id="nav"></nav>
+    <nav class="nav" id="nav" aria-label="Workspace"></nav>
     <div class="spacer"></div>
     <div class="heartbeat" id="heartbeat"></div>
   </aside>

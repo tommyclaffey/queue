@@ -136,10 +136,19 @@ function menu(anchor, items) {
   const w = m.offsetWidth;
   m.style.top = `${Math.min(r.bottom + 6, innerHeight - m.offsetHeight - 8)}px`;
   m.style.left = `${Math.max(8, r.right - w)}px`;
-  setTimeout(() => { document.addEventListener('click', closeMenu, { once: true }); document.addEventListener('keydown', menuEsc); });
+  setTimeout(() => { document.addEventListener('click', closeMenu, { once: true }); document.addEventListener('keydown', menuEsc); m.querySelector('button')?.focus(); });
+  menuOpener = anchor;
 }
+let menuOpener = null;
 function closeMenu() { document.querySelectorAll('.menu').forEach((n) => n.remove()); document.removeEventListener('keydown', menuEsc); }
-function menuEsc(e) { if (e.key === 'Escape') closeMenu(); }
+function menuEsc(e) {
+  const items = [...document.querySelectorAll('.menu button')];
+  if (e.key === 'Escape') { closeMenu(); menuOpener?.focus(); return; }
+  if (!['ArrowDown', 'ArrowUp'].includes(e.key) || !items.length) return;
+  e.preventDefault();
+  const i = items.indexOf(document.activeElement);
+  items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
+}
 const moreBtn = (items, label = 'More actions') => { const b = el('button', { class: 'btn ghost small icon-only', type: 'button', 'aria-label': label, html: svgIcon('more') }); b.addEventListener('click', (e) => { e.stopPropagation(); menu(b, items()); }); return b; };
 function searchBox(value, onInput, placeholder) {
   const i = el('input', { class: 'input', type: 'search', placeholder, value });
@@ -161,15 +170,28 @@ function toast(msg, bad) {
   $('#toastRoot').append(t);
   setTimeout(() => t.remove(), 3200);
 }
+// Dialogs: Escape or clicking outside closes; Tab stays inside; focus returns to where it was.
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]):not(.hidden), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 function modal(build) {
   const root = $('#modalRoot');
-  const close = () => { root.replaceChildren(); document.removeEventListener('keydown', esc); };
-  const esc = (e) => { if (e.key === 'Escape') close(); };
-  const box = el('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true' });
+  const opener = document.activeElement;
+  const close = () => { root.replaceChildren(); document.removeEventListener('keydown', keys); if (opener?.isConnected) opener.focus(); };
+  const keys = (e) => {
+    if (e.key === 'Escape') return close();
+    if (e.key !== 'Tab') return;
+    const f = [...box.querySelectorAll(FOCUSABLE)].filter((n) => n.offsetParent !== null);
+    if (!f.length) return;
+    if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+    else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+  };
+  const box = el('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', tabindex: '-1' });
   const scrim = el('div', { class: 'scrim', on: { click: (e) => { if (e.target === scrim) close(); } } }, box);
   root.replaceChildren(scrim);
-  document.addEventListener('keydown', esc);
+  document.addEventListener('keydown', keys);
   build(box, close);
+  // Name the dialog after its heading, and move focus into it (unless build() already did).
+  const h = box.querySelector('h2'); if (h) { h.id ||= `dlg-${Date.now()}`; box.setAttribute('aria-labelledby', h.id); }
+  requestAnimationFrame(() => { if (!box.contains(document.activeElement)) (box.querySelector('input:not(.hidden), textarea, select') || box.querySelector('.foot .btn.primary') || box).focus(); });
   return close;
 }
 const modalOpen = () => !!$('#modalRoot').firstChild;
@@ -927,6 +949,31 @@ function previewCaption(platform, text) {
 }
 // The platform's buttons, caption and nav drawn over the preview. Off = just your video, edge to edge.
 let previewUI = localStorage.getItem('queue-preview-ui') !== 'off';
+// Safe zones: where each app's own buttons, caption and bars sit on a 9:16 video, as % of the
+// frame (top, bottom, left, right). Approximate — they match the overlays drawn in the preview
+// and each platform's published creator guidance, not pixel-exact measurements.
+const SAFE = {
+  instagram: [14, 25, 4, 15], tiktok: [10, 20, 4, 15], youtubeshorts: [8, 20, 4, 15], facebook: [10, 20, 4, 14], story: [14, 14, 4, 4],
+};
+let previewSafe = localStorage.getItem('queue-preview-safe') === 'on';
+function safeOverlay(key) {
+  const z = SAFE[key]; if (!z) return null;
+  const [t, b, l, r] = z;
+  return el('div', { class: 'safe', 'aria-hidden': 'true' },
+    el('i', { style: `top:0;left:0;right:0;height:${t}%` }), el('i', { style: `bottom:0;left:0;right:0;height:${b}%` }),
+    el('i', { style: `top:${t}%;bottom:${b}%;left:0;width:${l}%` }), el('i', { style: `top:${t}%;bottom:${b}%;right:0;width:${r}%` }),
+    el('div', { class: 'safe-box', style: `top:${t}%;bottom:${b}%;left:${l}%;right:${r}%` }, el('span', {}, 'Safe area')));
+}
+function previewToggles(redraw) {
+  const mk = (label, get, set) => {
+    const t = el('button', { class: 'toggle' + (get() ? ' on' : ''), type: 'button', 'aria-pressed': String(get()), 'aria-label': label });
+    t.addEventListener('click', (e) => { e.preventDefault(); set(!get()); t.classList.toggle('on', get()); t.setAttribute('aria-pressed', String(get())); redraw(); });
+    return el('label', { class: 'preview-toggle' }, el('span', {}, label), t);
+  };
+  return el('div', { class: 'row', style: 'gap:18px;flex-wrap:wrap' },
+    mk('App interface', () => previewUI, (v) => { previewUI = v; localStorage.setItem('queue-preview-ui', v ? 'on' : 'off'); }),
+    mk('Safe zones', () => previewSafe, (v) => { previewSafe = v; localStorage.setItem('queue-preview-safe', v ? 'on' : 'off'); }));
+}
 function uiToggle(redraw) {
   const t = el('button', { class: 'toggle' + (previewUI ? ' on' : ''), type: 'button', 'aria-pressed': String(previewUI), 'aria-label': 'Show app interface' });
   const row = el('label', { class: 'preview-toggle' }, el('span', {}, 'App interface'), t);
@@ -941,7 +988,7 @@ function uiToggle(redraw) {
 }
 function phone(platform, video, caption) {
   const ph = el('div', { class: 'phone' + (platform === 'linkedin' ? ' light' : '') });
-  if (!previewUI) { ph.className = 'phone clean'; ph.append(video); return ph; }
+  if (!previewUI) { ph.className = 'phone clean'; ph.append(video); if (previewSafe) ph.append(safeOverlay(platform) || ''); return ph; }
   const ui = el('div', { class: 'ui' });
   const I = (n, size = 24) => el('span', { style: `display:block;width:${size}px;height:${size}px`, html: svgIcon(n) });
   const at = (node, style) => { node.classList.add('abs'); node.setAttribute('style', (node.getAttribute('style') || '') + ';' + style); return node; };
@@ -987,6 +1034,7 @@ function phone(platform, video, caption) {
     ui.append(pnav([ni('home', 'Home', '#191919'), ni('users', 'My Network', '#666'), ni('plusSquare', 'Post', '#666'), ni('bell', 'Alerts', '#666'), ni('briefcase', 'Jobs', '#666')], 50, '#fff', '#666'));
   }
   ph.append(ui);
+  if (previewSafe && platform !== 'linkedin') ph.append(safeOverlay(platform));
   return ph;
 }
 // Reopen a video that's already in the Library (from Calendar, Library, or the drop screen).

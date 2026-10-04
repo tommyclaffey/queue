@@ -6,7 +6,7 @@ import { sendFile } from './range.js';
 import { pipeline } from 'node:stream/promises';
 import { join, basename, extname } from 'node:path';
 import { INSTAGRAM_REELS as SPEC } from './specs.js';
-import { hasFfmpeg, probe } from './probe.js';
+import { hasFfmpeg, probeAsync } from './probe.js';
 import { preflight } from './preflight.js';
 import { conformAsync } from './conform.js';
 import { hasCloudflared } from './fileshare.js';
@@ -53,21 +53,27 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
   // ffprobe is ~50 ms a file, so cache by path + size + mtime. The Library and Queue lists
   // ask for every file on every refresh.
   const probeCache = new Map();
-  const summarize = (file) => {
+  const summarizeAsync = async (file) => {
     const st = statSync(file);
     const key = `${file}|${st.size}|${st.mtimeMs}`;
     if (probeCache.has(key)) return probeCache.get(key);
-    const info = probe(file);
+    const info = await probeAsync(file);
     const out = { info, result: preflight(info, SPEC) };
     if (probeCache.size > 500) probeCache.clear();
     probeCache.set(key, out);
     return out;
   };
+  // Runs fn over items, at most `n` at a time (ffprobe is CPU-bound).
+  const mapLimit = async (items, n, fn) => {
+    const out = new Array(items.length); let i = 0;
+    await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) { const k = i++; out[k] = await fn(items[k]); } }));
+    return out;
+  };
   // A small, safe description of a video for lists. Never throws.
-  const metaOf = (file) => {
+  const metaOf = async (file) => {
     try {
       if (!file || !existsSync(file)) return null;
-      const { info, result } = summarize(file);
+      const { info, result } = await summarizeAsync(file);
       const v = info.video || {};
       return {
         width: v.width, height: v.height, durationSec: info.durationSec, bytes: info.bytes,
@@ -310,7 +316,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         const name = basename(decodeURIComponent(id));
         const file = safeMedia(name);
         if (!file || /\.(conformed|sdr)\.mp4$/.test(name)) return send(res, 404, { error: 'That video is no longer in the Library.' });
-        try { const { info, result } = summarize(file); return send(res, 200, { name, info, result }); }
+        try { const { info, result } = await summarizeAsync(file); return send(res, 200, { name, info, result }); }
         catch { return send(res, 400, { error: "That file isn't a readable video." }); }
       }
 
@@ -320,7 +326,8 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         for (const p of queue.posts) { if (!p.file) continue; const k = stem(p.source || basename(p.file)); if (!users.has(k)) users.set(k, []); users.get(k).push({ id: p.id, status: p.status, publishAt: p.publishAt, caption: p.caption }); }
         let files = [];
         try { files = readdirSync(mediaDir).filter((f) => !f.startsWith('.') && /\.(mp4|mov|m4v)$/i.test(f)); } catch {}
-        const items = files.flatMap((name) => { let st; try { st = statSync(join(mediaDir, name)); } catch { return []; } return [{ name, bytes: st.size, modified: st.mtime.toISOString(), fixedCopy: /\.(conformed|sdr)\.mp4$/.test(name), posts: users.get(stem(name)) || [], meta: /\.(conformed|sdr)\.mp4$/.test(name) ? null : metaOf(join(mediaDir, name)) }]; })
+        const base = files.flatMap((name) => { let st; try { st = statSync(join(mediaDir, name)); } catch { return []; } return [{ name, bytes: st.size, modified: st.mtime.toISOString(), fixedCopy: /\.(conformed|sdr)\.mp4$/.test(name), posts: users.get(stem(name)) || [] }]; });
+        const items = (await mapLimit(base, 4, async (it) => ({ ...it, meta: it.fixedCopy ? null : await metaOf(join(mediaDir, it.name)) })))
           .sort((a, b) => b.modified.localeCompare(a.modified));
         return send(res, 200, { items });
       }
@@ -350,7 +357,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         const dest = join(mediaDir, name);
         await pipeline(req, createWriteStream(dest));
         try {
-          const { info, result } = summarize(dest);
+          const { info, result } = await summarizeAsync(dest);
           return send(res, 200, { name, info, result });
         } catch {
           unlinkSync(dest);
@@ -365,11 +372,11 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         const when = validTime(at);
         if (caption.length > 2200) return send(res, 400, { error: 'Caption is over 2,200 characters.' });
 
-        const { info, result } = summarize(file);
+        const { info, result } = await summarizeAsync(file);
         if (result.needsTrim) return send(res, 400, { error: 'Duration is out of range. Trim it in your editor.' });
         const cover = validCover(coverOffsetMs, info.durationSec);
         const ready = await conformAsync(info, result.plan, SPEC);
-        const recheck = preflight(probe(ready), SPEC);
+        const recheck = preflight(await probeAsync(ready), SPEC);
         if (!recheck.ok) return send(res, 400, { error: 'Still failing after the fix: ' + recheck.issues.map((i) => i.msg).join('; ') });
 
         const FORMAT = { instagram: 'Reel', youtubeshorts: 'Short', tiktok: 'Video', facebook: 'Reel', linkedin: 'Video' };
@@ -380,10 +387,9 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
 
       if (resource === 'queue') {
         if (req.method === 'GET' && !id) {
-          const posts = [...queue.posts]
-            .sort((a, b) => a.publishAt.localeCompare(b.publishAt))
-            // shareToken is a live public link key — it never leaves the server.
-            .map(({ log: _log, shareToken: _t, ...p }) => ({ ...p, media: p.file ? basename(p.file) : null, meta: metaOf(p.file), lastLog: _log?.at(-1)?.msg || null }));
+          const sorted = [...queue.posts].sort((a, b) => a.publishAt.localeCompare(b.publishAt));
+          // shareToken is a live public link key — it never leaves the server.
+          const posts = await mapLimit(sorted, 4, async ({ log: _log, shareToken: _t, ...p }) => ({ ...p, media: p.file ? basename(p.file) : null, meta: await metaOf(p.file), lastLog: _log?.at(-1)?.msg || null }));
           return send(res, 200, { posts });
         }
         if (req.method === 'PATCH' && id) {
