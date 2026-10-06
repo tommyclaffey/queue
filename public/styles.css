@@ -539,6 +539,12 @@ pre.method { margin: 0; white-space: pre-wrap; font: 12px/18px var(--mono); colo
 .queue-table td:nth-child(5), .queue-table td:last-child { white-space: nowrap; }
 @media (max-width: 1240px) { .queue-table .post-cell .cap { max-width: 220px; } .queue-table td, .queue-table th { padding-left: 9px; padding-right: 9px; } }
 
+.connect-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; max-width: 1080px; }
+.cstep { display: flex; gap: 14px; align-items: flex-start; }
+.cstep b { font-weight: 500; }
+.cstep .n { width: 26px; height: 26px; border-radius: 50%; background: var(--brand); color: var(--text-on-brand); display: grid; place-items: center; font-size: 13px; font-weight: 600; flex: none; }
+@media (max-width: 1180px) { .connect-grid { grid-template-columns: 1fr; } }
+
 /* ---------- Keyboard & motion ---------- */
 :where(button, a, [role="button"], [tabindex], select, summary):focus-visible { outline: 2px solid var(--info); outline-offset: 2px; border-radius: 8px; }
 .input:focus-visible { outline: none; }

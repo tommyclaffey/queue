@@ -10,12 +10,18 @@ import { mergeSettings } from './settings.js';
 
 export function loadConfig(root) {
   if (existsSync(join(root, '.env'))) process.loadEnvFile(join(root, '.env'));
+  // Hosted (e.g. Railway): data, media and the saved login live on a persistent volume (DATA_DIR).
+  const home = process.env.DATA_DIR || root;
+  if (home !== root && existsSync(join(home, '.env'))) process.loadEnvFile(join(home, '.env'));
   const env = process.env;
+  const hosted = env.HOSTED === '1';
+  const dataDir = join(home, 'data');
+  const publicBaseUrl = env.PUBLIC_BASE_URL || (env.RAILWAY_PUBLIC_DOMAIN ? `https://${env.RAILWAY_PUBLIC_DOMAIN}` : null);
   const login = (env.IG_LOGIN || 'instagram').toLowerCase();
   if (!['instagram', 'facebook'].includes(login)) throw new Error(`IG_LOGIN must be "instagram" or "facebook", got "${env.IG_LOGIN}"`);
 
-  const settings = mergeSettings(join(root, 'data'), env);
-  const tokens = new TokenStore(join(root, 'data', 'token.json'), env.IG_ACCESS_TOKEN?.trim());
+  const settings = mergeSettings(dataDir, env);
+  const tokens = new TokenStore(join(dataDir, 'token.json'), env.IG_ACCESS_TOKEN?.trim());
   const log = (m) => console.log(new Date().toLocaleTimeString(), m);
 
   const ig = new InstagramClient({
@@ -31,8 +37,13 @@ export function loadConfig(root) {
     ig,
     tokens,
     log,
-    queue: new Queue(join(root, 'data', 'queue.json')),
-    files: new FileShare({ publicBaseUrl: env.PUBLIC_BASE_URL || null, port: Number(env.SHARE_PORT || 0), log }),
+    queue: new Queue(join(dataDir, 'queue.json')),
+    files: new FileShare({ publicBaseUrl, port: Number(env.SHARE_PORT || 0), log, embedded: hosted }),
+    hosted,
+    password: env.QUEUE_PASSWORD || null,
+    dataDir,
+    mediaDir: join(home, 'media'),
+    envFile: join(home, '.env'),
     // App settings (data/settings.json) win over .env, which wins over the defaults.
     stageWindowMin: settings.stageWindowMin,
     lateLimitMin: settings.lateLimitMin,

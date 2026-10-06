@@ -39,8 +39,10 @@ export class FileShare {
   #starting = null;
   #shares = new Map(); // token → { file, at }
 
-  constructor({ publicBaseUrl = null, port = 0, log = () => {} } = {}) {
+  // embedded: no server of its own; the hosted web app routes /v/... here (one public port).
+  constructor({ publicBaseUrl = null, port = 0, log = () => {}, embedded = false } = {}) {
     this.publicBaseUrl = publicBaseUrl;
+    this.embedded = embedded;
     this.port = port;
     this.log = log;
   }
@@ -82,6 +84,8 @@ export class FileShare {
     for (const [token, s] of this.#shares) if (s.at < cutoff) this.#shares.delete(token);
   }
 
+  handle(req, res) { return this.#handle(req, res); }
+
   #handle = (req, res) => {
     try {
       const m = /^\/v\/([a-f0-9]{64})\/video\.(mp4|mov)$/.exec(req.url.split('?')[0]);
@@ -115,6 +119,11 @@ export class FileShare {
   }
 
   async #startInner() {
+    if (this.embedded) {
+      if (!this.publicBaseUrl) throw new Error('Hosted mode needs a public address (RAILWAY_PUBLIC_DOMAIN or PUBLIC_BASE_URL).');
+      this.#baseUrl = this.publicBaseUrl.replace(/\/$/, '');
+      return this.#baseUrl;
+    }
     this.#server = createServer(this.#handle);
     this.#server.on('error', () => {}); // surfaced via listen() below instead of crashing
     await new Promise((resolve, reject) => {

@@ -30,6 +30,26 @@ npm run doctor               # checks your Meta connection
 
 Meta account setup, click by click: vault note **"(C) Queue — Meta Setup Guide"**.
 
+## Run it on a server (Railway)
+
+So the Mac doesn't have to be on at post time. `HOSTED=1` switches on what a public server needs:
+
+- **Password sign-in** (`QUEUE_PASSWORD`, 12+ characters, required: the app won't start without it).
+  30-day HttpOnly session; 10 wrong passwords lock that address out for 15 minutes
+- **Instagram's video links are served by the app itself** at `/v/<256-bit token>/…`, so no tunnel is needed
+- **Data, videos and the saved login on a volume** at `DATA_DIR` (`/data` in the Dockerfile)
+- Mac-only extras are off: Apple's HDR converter (HDR clips get a clear "export standard colour" message), notifications, start at login
+
+```bash
+railway init --name queue        # needs a paid plan (Hobby)
+railway add --service queue
+railway volume add --mount-path /data
+railway variables --set QUEUE_PASSWORD='…'
+railway domain                   # gives the public https address
+railway up --detach
+```
+Then open the address, sign in, and connect Instagram on the Connect page.
+
 ## Demo account
 
 ```bash
@@ -104,7 +124,7 @@ Only one scheduler runs at a time (`data/scheduler.lock`). While it runs, the Ma
 ## Tests
 
 ```bash
-npm test     # 96 tests, ~60s
+npm test     # 102 tests, ~60s
 ```
 
 - `test/mock-meta.js` is a strict fake of Meta's Graph + rupload APIs, built from Meta's docs. It checks

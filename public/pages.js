@@ -248,19 +248,59 @@ VIEWS.welcome = (c) => {
         el('div', { class: 'stack', style: 'gap:10px;align-items:center' }, el('div', { class: 'label' }, 'Queue'), frame(''), el('div', { class: 'small muted' }, 'Original file, one clean pass'), el('div', { class: 'wel-score' }, `VMAF ${Math.round(hi)}`))),
       el('div', { class: 'small faint', style: 'text-align:center' }, real ? 'Measured on one of your own clips, posted both ways.' : 'Illustrative — real scores come from your own quality test.'))));
 };
-function connectHelp(kind) {
+function connectHelp(kind) { connectLogin = kind === 'facebook' ? 'facebook' : 'instagram'; location.hash = '#/connect'; }
+
+// ================================================================ CONNECT INSTAGRAM
+// Paste the key from Meta's dashboard; Queue checks it with Instagram, saves it, and goes live.
+let connectLogin = 'instagram';
+VIEWS.connect = async (c) => {
+  const st = S.status;
+  topbar('Connect Instagram', 'One-time setup · about 20 minutes');
+  if (isDemo()) { c.append(el('div', { class: 'card empty' }, el('div', { class: 'h3' }, 'This is the demo account'), el('div', {}, 'To connect your real Instagram, run Queue with npm start and open localhost:4400.'))); return; }
+  if (st && !st.dryRun && st.account) {
+    c.append(el('div', { class: 'card stack', style: 'gap:12px;max-width:620px' },
+      el('div', { class: 'row' }, el('span', { class: 'pbadge', style: 'width:40px;height:40px', html: svgLogo('instagram') }), el('div', { style: 'flex:1' }, el('h2', { class: 'h3' }, `Connected as @${st.account}`), el('div', { class: 'small muted' }, `${st.login === 'facebook' ? 'Facebook Page login' : 'Instagram login'} · ${st.tokenDaysLeft != null ? `key good for ${st.tokenDaysLeft} more days, renews itself` : 'key renews itself'}`)), el('span', { class: 'pill posted' }, '✓ Live')),
+      el('div', { class: 'row' }, btn('Run the setup check', 'primary', () => (location.hash = '#/setup')), btn('Disconnect', 'ghost danger', disconnectIg))));
+    return;
+  }
+  const step = (n, title, body) => el('div', { class: 'cstep' }, el('span', { class: 'n' }, String(n)), el('div', { class: 'stack', style: 'gap:4px' }, el('b', {}, title), ...body));
+  const link = (href, label) => el('a', { class: 'link', href, target: '_blank', rel: 'noopener' }, label, ' ↗');
+  const steps = el('div', { class: 'card stack', style: 'gap:18px' }, el('h2', { class: 'h3' }, 'Before you paste'),
+    step(1, 'Make your Instagram a Creator account', [el('div', { class: 'small muted' }, 'On your phone: Instagram → Settings → Account type and tools → Switch to professional account → Creator. (2 min)')]),
+    step(2, 'Create a Meta app', [el('div', { class: 'small muted' }, 'Log in with your own Facebook account, then Create app → "Other" → "Business". Name it anything, like "Queue". (5 min)'), el('div', { class: 'small' }, link('https://developers.facebook.com/apps', 'developers.facebook.com/apps'))]),
+    step(3, 'Generate your key', [el('div', { class: 'small muted' }, connectLogin === 'facebook'
+      ? 'In the app: add "Instagram" with Facebook Login, link the Facebook Page your Instagram is connected to, then generate a Page access token. Copy the token and your Instagram user ID.'
+      : 'In the app: add the "Instagram" product → "API setup with Instagram login" → "Generate token" next to your account. Log in with Instagram and copy the token. (5 min)')]),
+    step(4, 'Paste it here', [el('div', { class: 'small muted' }, 'Queue checks it with Instagram before saving anything. The key stays on this Mac.')]),
+    el('div', { class: 'small faint' }, 'Full walkthrough with screenshots: the "Meta Setup Guide" note in your vault.'));
+
+  const seg = el('div', { class: 'seg' }, ...[['instagram', 'Instagram login (recommended)'], ['facebook', 'Facebook Page login']].map(([k, l]) => el('button', { type: 'button', class: connectLogin === k ? 'on' : '', on: { click: () => { connectLogin = k; render(); } } }, l)));
+  const token = el('textarea', { class: 'input mono', rows: 4, placeholder: 'Paste the access token (a long code starting with IG… or EA…)', spellcheck: 'false', autocomplete: 'off', style: 'min-height:96px;font-size:12px;word-break:break-all' });
+  const uid = el('input', { class: 'input mono', inputmode: 'numeric', placeholder: connectLogin === 'facebook' ? 'Required, e.g. 17841400000000000' : 'Optional: Queue finds it from the key', autocomplete: 'off' });
+  const err = el('div', { class: 'small', style: 'color:var(--danger)' });
+  const go = btn('Connect', 'primary', async () => {
+    err.textContent = ''; go.disabled = true; go.textContent = 'Checking with Instagram…';
+    try {
+      const r = await api('/api/connect', json('POST', { login: connectLogin, token: token.value, userId: uid.value }));
+      token.value = '';
+      toast(`Connected as @${r.account}`);
+      await load();
+      if (r.needsCloudflared) toast('One more thing: run "brew install cloudflared" in Terminal (Instagram login sends videos by temporary link).', true);
+      location.hash = '#/setup';
+    } catch (e) { err.textContent = e.message; go.disabled = false; go.textContent = 'Connect'; }
+  });
+  const form = el('div', { class: 'card stack', style: 'gap:14px' }, el('h2', { class: 'h3' }, 'Your key'),
+    el('div', { class: 'field' }, el('span', {}, 'How you log in'), seg),
+    el('label', { class: 'field' }, el('span', {}, 'Access token'), token),
+    el('label', { class: 'field' }, el('span', {}, 'Instagram user ID'), uid),
+    err, el('div', { class: 'row' }, go, el('span', { class: 'small faint' }, 'Saved to .env on this Mac. Never sent anywhere but Instagram.')));
+  c.append(el('div', { class: 'connect-grid' }, steps, form));
+  token.focus();
+};
+function disconnectIg() {
   modal((m, close) => {
-    m.append(el('h2', { class: 'h2' }, kind === 'facebook' ? 'Connect with a Facebook Page login' : 'Connect Instagram'),
-      el('div', { class: 'muted small' }, 'Instagram only lets apps post through Meta\'s developer tools, so connecting is a one-time setup (about 30 minutes):'),
-      el('ol', { class: 'steps-list' }, ...[
-        'Make sure the Instagram account is a Creator or Business account.',
-        kind === 'facebook' ? 'Link it to a Facebook Page you manage.' : 'Create a Meta app at developers.facebook.com and add "Instagram API with Instagram Login".',
-        'Generate an access token and copy your Instagram user ID.',
-        `Paste them into the .env file: IG_LOGIN=${kind}, IG_ACCESS_TOKEN=…, IG_USER_ID=…`,
-        'Restart Queue (Ctrl+C, then npm start). It leaves dry run on its own.',
-      ].map((t) => el('li', {}, t))),
-      el('div', { class: 'inset small muted' }, 'The full walkthrough with screenshots is the "Meta Setup Guide" note in your vault.'),
-      el('div', { class: 'foot' }, btn('Run the setup check', 'secondary', () => { close(); location.hash = '#/setup'; }), btn('Done', 'primary', close)));
+    m.append(el('h2', { class: 'h2' }, 'Disconnect Instagram?'), el('div', { class: 'muted' }, 'Queue goes back to dry run: nothing will post until you connect again. Your scheduled posts stay in the queue.'),
+      el('div', { class: 'foot' }, btn('Cancel', 'ghost', close), btn('Disconnect', 'primary', async () => { try { await api('/api/disconnect', { method: 'POST' }); close(); toast('Disconnected — back to dry run'); await load(); render(); } catch (e) { toast(e.message, true); } })));
   });
 }
 VIEWS.setup = async (c) => {

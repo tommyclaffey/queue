@@ -2,7 +2,7 @@
 // Tokens from the dashboard last 60 days. Meta lets you refresh once a token is 24h+ old,
 // which returns a new 60-day token. We refresh weekly and save the new token to
 // data/token.json (which then takes priority over .env).
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs';
 
 const DAY = 86_400_000;
 const REFRESH_EVERY = 7 * DAY;
@@ -14,6 +14,14 @@ export class TokenStore {
     this.data = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null;
     // If .env has a DIFFERENT token than the one we last saved, the user pasted a new one: it wins.
     if (this.data && this.envToken && this.data.sourceEnvToken !== this.envToken) this.data = null;
+  }
+
+  // A new key was connected (or the account disconnected) from the app: forget the renewed one.
+  reset(envToken) {
+    this.envToken = envToken || null;
+    this.data = null;
+    this.lastAttempt = null;
+    try { if (existsSync(this.path)) unlinkSync(this.path); } catch {}
   }
 
   get token() {

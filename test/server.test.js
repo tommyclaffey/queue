@@ -1,7 +1,7 @@
 // The web app's API, driven like the browser does, against the fake Meta server in LIVE mode.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startServer } from '../src/server.js';
@@ -18,7 +18,7 @@ before(async () => {
   dir = tmp();
   queue = new Queue(join(dir, 'queue.json'));
   const ig = new InstagramClient({ login: 'facebook', userId: meta.userId, token: GOOD_TOKEN, graphHost: meta.host, ruploadHost: meta.host, retryDelayMs: 5 });
-  app = startServer({ root: ROOT, mediaDir: join(dir, 'media'), dataDir: join(dir, 'data'), queue, ig, port: 0, tickMs: 150, log: () => {} });
+  app = startServer({ root: ROOT, mediaDir: join(dir, 'media'), dataDir: join(dir, 'data'), envFile: join(dir, '.env'), makeIg: (o) => new InstagramClient({ ...o, graphHost: meta.host, ruploadHost: meta.host, retryDelayMs: 5 }), queue, ig, port: 0, tickMs: 150, log: () => {} });
   await app.ready;
   base = `http://127.0.0.1:${app.port()}`;
 });
@@ -310,4 +310,37 @@ test('missed post: shows as missed, "Post now" works, history is readable', asyn
   assert.ok(msgs.includes('post now requested'));
   assert.ok(msgs.some((m) => /^missed by/.test(m)));
   assert.equal((await api('/api/queue/nope/post-now', json('POST', {}))).status, 400);
+});
+
+test('Connect Instagram from the app: wrong key refused, right key checked, saved and live; disconnect', async () => {
+  const env = join(dir, '.env');
+  writeFileSync(env, '# my settings\nGRAPH_VERSION=v25.0\nIG_ACCESS_TOKEN=\n');
+  assert.equal((await api('/api/connect', json('POST', { token: 'short' }))).status, 400);
+  assert.equal((await api('/api/connect', json('POST', { token: 'x'.repeat(40), userId: 'abc' }))).status, 400, 'user id must be a number');
+  assert.equal((await api('/api/connect', json('POST', { login: 'facebook', token: 'x'.repeat(40) }))).status, 400, 'Page login needs the user id');
+  const bad = await api('/api/connect', json('POST', { token: 'not-the-right-token-but-long-enough' }));
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.error, /didn't accept that key/);
+  assert.match(readFileSync(env, 'utf8'), /IG_ACCESS_TOKEN=\n/, 'nothing saved on failure');
+
+  const ok = await api('/api/connect', json('POST', { login: 'instagram', token: GOOD_TOKEN }));
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.account, 'tommy.test');
+  assert.ok(!JSON.stringify(ok.body).includes(GOOD_TOKEN), 'the key never goes back to the browser');
+  const saved = readFileSync(env, 'utf8');
+  assert.match(saved, /^# my settings$/m, 'comments kept');
+  assert.match(saved, /^GRAPH_VERSION=v25\.0$/m, 'other settings kept');
+  assert.match(saved, new RegExp(`^IG_ACCESS_TOKEN=${GOOD_TOKEN}$`, 'm'));
+  assert.match(saved, /^IG_LOGIN=instagram$/m);
+  assert.equal(statSync(env).mode & 0o777, 0o600, 'owner-only, it holds a login key');
+  const st = (await api('/api/status')).body;
+  assert.equal(st.dryRun, false);
+  assert.equal(st.account, 'tommy.test');
+
+  assert.equal((await api('/api/disconnect', { method: 'POST' })).status, 200);
+  assert.equal((await api('/api/status')).body.dryRun, true);
+  assert.match(readFileSync(env, 'utf8'), /^IG_ACCESS_TOKEN=$/m);
+  // Leave it connected the way the other tests expect.
+  await api('/api/connect', json('POST', { login: 'facebook', token: GOOD_TOKEN, userId: meta.userId }));
+  assert.equal((await api('/api/status')).body.dryRun, false);
 });

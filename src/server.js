@@ -16,14 +16,18 @@ import { readdirSync, statSync } from 'node:fs';
 import { isLoaded as autostartOn } from './autostart.js';
 import { compare, download } from './quality.js';
 import { mergeSettings, saveSettings } from './settings.js';
+import { updateEnv } from './envfile.js';
+import { InstagramClient } from './instagram.js';
+import { randomBytes, createHmac, createHash, timingSafeEqual } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFileSync, writeFileSync, copyFileSync } from 'node:fs';
 
 const TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/mp4' };
 const PUBLIC_FILES = new Set(['index.html', 'styles.css', 'app.js', 'pages.js']);
+const LOGIN_FILES = new Set(['login.html', 'styles.css']); // all a signed-out visitor can load (hosted mode)
 
-export function startServer({ root, queue, ig, files = null, tokens = null, port = 4400, stageWindowMin = 120, lateLimitMin = 120, notify = () => {}, log = console.log, tickMs = 30_000, mediaDir = join(root, 'media'), dataDir = join(root, 'data'), demo = null, notifyOn = true }) {
+export function startServer({ root, queue, ig, files = null, tokens = null, port = 4400, stageWindowMin = 120, lateLimitMin = 120, notify = () => {}, log = console.log, tickMs = 30_000, mediaDir = join(root, 'media'), dataDir = join(root, 'data'), demo = null, notifyOn = true, envFile = join(root, '.env'), makeIg = (o) => new InstagramClient(o), hosted = false, password = null, host = null }) {
   // Live settings. Explicit options (from loadConfig or tests) win at start; changes made in the
   // app are saved to data/settings.json and applied immediately.
   let settings = { ...mergeSettings(dataDir), stageWindowMin, lateLimitMin, notify: notifyOn };
@@ -166,15 +170,72 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
   const allowedHost = (h) => /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(h || '');
   const allowedOrigin = (o) => !o || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o);
 
+  // ---- Hosted mode (Railway etc.): the app is on the public internet, so everything except the
+  // sign-in page and Instagram's temporary video links needs a session from the password.
+  const SESSION_DAYS = 30;
+  let sessionSecret = null;
+  if (hosted) {
+    if (!password) throw new Error('Hosted mode needs a password (QUEUE_PASSWORD).');
+    const f = join(dataDir, 'session.secret');
+    try { sessionSecret = readFileSync(f, 'utf8').trim(); } catch {}
+    if (!sessionSecret) { mkdirSync(dataDir, { recursive: true }); sessionSecret = randomBytes(32).toString('hex'); writeFileSync(f, sessionSecret, { mode: 0o600 }); }
+  }
+  const pwHash = password ? createHash('sha256').update(password).digest() : null;
+  // Changing the password signs every device out (it's part of the signature).
+  const sign = (exp) => createHmac('sha256', sessionSecret).update(`${exp}.${pwHash?.toString('hex')}`).digest('hex');
+  const cookieOf = (req) => (/(?:^|;\s*)queue_session=([^;]+)/.exec(req.headers.cookie || '') || [])[1];
+  const authed = (req) => {
+    if (!hosted) return true;
+    const [exp, sig] = String(cookieOf(req) || '').split('.');
+    if (!exp || !sig || Number(exp) < Date.now() || sig.length !== 64) return false;
+    try { return timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(sign(exp), 'hex')); } catch { return false; }
+  };
+  const attempts = new Map(); // ip → { n, until } — 10 wrong passwords locks that address out for 15 min
+  const clientIp = (req) => String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+  const sameOrigin = (req) => { const o = req.headers.origin; return !o || o === `https://${req.headers.host}` || o === `http://${req.headers.host}`; };
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const [, api, resource, id, action, sub] = url.pathname.split('/');
-    if (!allowedHost(req.headers.host)) {
+    // Instagram downloads staged videos from /v/<256-bit token>/… — no session, token only.
+    if (hosted && files?.embedded && url.pathname.startsWith('/v/')) return files.handle(req, res);
+    if (!hosted && !allowedHost(req.headers.host)) {
       res.writeHead(403);
       return res.end('Forbidden');
     }
-    if (req.method !== 'GET' && (req.headers['x-queue'] !== '1' || !allowedOrigin(req.headers.origin))) {
+    if (req.method !== 'GET' && (req.headers['x-queue'] !== '1' || !(hosted ? sameOrigin(req) : allowedOrigin(req.headers.origin)))) {
       return send(res, 403, { error: 'Forbidden' });
+    }
+    if (hosted && !authed(req)) {
+      if (req.method === 'POST' && url.pathname === '/api/login') {
+        const ip = clientIp(req); const a = attempts.get(ip);
+        if (a && a.n >= 10 && a.until > Date.now()) return send(res, 429, { error: 'Too many wrong passwords. Try again in 15 minutes.' });
+        let given = '';
+        try { given = String((await readJson(req)).password || ''); } catch {}
+        const ok = timingSafeEqual(createHash('sha256').update(given).digest(), pwHash);
+        if (!ok) {
+          const n = a && a.until > Date.now() ? a.n + 1 : 1;
+          attempts.set(ip, { n, until: Date.now() + 15 * 60_000 });
+          return send(res, 401, { error: 'Wrong password.' });
+        }
+        attempts.delete(ip);
+        const exp = Date.now() + SESSION_DAYS * 86_400_000;
+        const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': `queue_session=${exp}.${sign(exp)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${secure}` });
+        return res.end(JSON.stringify({ ok: true }));
+      }
+      const name = url.pathname === '/' ? 'login.html' : url.pathname.slice(1);
+      if (req.method === 'GET' && LOGIN_FILES.has(name)) {
+        res.writeHead(200, { 'Content-Type': TYPES[extname(name)] + '; charset=utf-8', 'Cache-Control': 'no-store' });
+        return createReadStream(join(root, 'public', name)).pipe(res);
+      }
+      if (url.pathname.startsWith('/api/')) return send(res, 401, { error: 'Signed out. Reload the page and sign in.' });
+      res.writeHead(302, { Location: '/' });
+      return res.end();
+    }
+    if (hosted && req.method === 'POST' && url.pathname === '/api/logout') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': 'queue_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' });
+      return res.end(JSON.stringify({ ok: true }));
     }
     try {
       // The app itself: a fixed allowlist of files, never arbitrary paths.
@@ -301,10 +362,11 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
           login: ig.login,
           uploadMode: ig.uploadMode,
           ffmpeg: hasFfmpeg(),
-          cloudflared: hasCloudflared(),
+          cloudflared: hosted || hasCloudflared(), // hosted: the app serves the video links itself
           account: account?.username || null,
           accountError,
           tokenDaysLeft: tokens?.daysLeft() ?? null,
+          hosted,
           nextCheckAt,
           tickMs,
         });
@@ -337,6 +399,39 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         let autostart = false; try { autostart = autostartOn(); } catch {}
         return send(res, 200, { ...settings, login: ig.login, uploadMode: ig.uploadMode, autostart, graphVersion: ig.version });
       }
+      // Connect Instagram from the app: check the key with Instagram first, then save it to .env
+      // and switch over live. The key never comes back to the browser.
+      if (req.method === 'POST' && resource === 'connect') {
+        if (demo) return send(res, 400, { error: "The demo can't connect a real account. Run Queue with npm start." });
+        const b = await readJson(req);
+        const login = b.login === 'facebook' ? 'facebook' : 'instagram';
+        const token = String(b.token || '').trim();
+        const userId = String(b.userId || '').trim();
+        if (token.length < 8 || /\s/.test(token)) return send(res, 400, { error: 'That doesn\'t look like an access token. Copy the whole long code from Meta\'s dashboard.' });
+        if (userId && !/^\d{1,25}$/.test(userId)) return send(res, 400, { error: 'The Instagram user ID is a long number, like 17841400000000000.' });
+        if (login === 'facebook' && !userId) return send(res, 400, { error: 'With a Facebook Page login, the Instagram user ID is required.' });
+        const candidate = makeIg({ login, userId: userId || undefined, token, version: ig.version, retries: 1, retryDelayMs: 300 });
+        let acct;
+        try { acct = await candidate.account(); }
+        catch (err) {
+          const bad = err.code === 190 || err.status === 401;
+          return send(res, 400, { error: bad ? "Instagram didn't accept that key. It may be incomplete, expired, or from a different app. Generate a new one and paste it again." : `Instagram couldn't be reached to check the key: ${err.message}` });
+        }
+        updateEnv(envFile, { IG_LOGIN: login, IG_ACCESS_TOKEN: token, IG_USER_ID: userId, DRY_RUN: '0' });
+        tokens?.reset(token);
+        ig = makeIg({ login, userId: userId || undefined, token, version: ig.version });
+        account = acct; accountError = null;
+        return send(res, 200, { account: acct.username, login, uploadMode: ig.uploadMode, needsCloudflared: ig.uploadMode === 'url' && !hosted && !hasCloudflared() });
+      }
+      if (req.method === 'POST' && resource === 'disconnect') {
+        if (demo) return send(res, 400, { error: "The demo can't disconnect." });
+        updateEnv(envFile, { IG_ACCESS_TOKEN: '' });
+        tokens?.reset(null);
+        ig = makeIg({ login: ig.login, userId: ig.userId, version: ig.version, dryRun: true });
+        account = null; accountError = null;
+        return send(res, 200, { ok: true });
+      }
+
       if (req.method === 'PATCH' && resource === 'config') {
         const saved = saveSettings(dataDir, await readJson(req));
         settings = { ...settings, ...saved };
@@ -435,7 +530,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
   });
   server.on('clientError', (_err, socket) => socket.destroy());
 
-  server.listen(port, '127.0.0.1');
+  server.listen(port, host || (hosted ? '0.0.0.0' : '127.0.0.1'));
 
   const loop = async () => {
     nextCheckAt = new Date(Date.now() + tickMs).toISOString();

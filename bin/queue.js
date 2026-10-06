@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Queue — schedule Instagram Reels without wrecking video quality.
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -212,7 +212,12 @@ try {
 
     case 'serve': {
       const { ig } = cfg;
-      acquireLock(join(ROOT, 'data', 'scheduler.lock'));
+      if (cfg.hosted && (!cfg.password || cfg.password.length < 12)) {
+        console.error('\n❌ Hosted mode needs QUEUE_PASSWORD (12+ characters). Without it, anyone could post to your Instagram.\n');
+        process.exit(1);
+      }
+      mkdirSync(cfg.dataDir, { recursive: true });
+      acquireLock(join(cfg.dataDir, 'scheduler.lock'));
       autostart.trimLog(ROOT);
       keepAwake();
       const app = startServer({ root: ROOT, ...cfg });
@@ -223,6 +228,11 @@ try {
         process.exit(1);
       });
       app.ready.then(() => {
+        if (cfg.hosted) {
+          console.log(`\n  Queue is running (hosted) → ${process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : `port ${cfg.port}`}`);
+          console.log(ig.dryRun ? '  🧪 DRY RUN until Instagram is connected (Connect page).\n' : `  🟢 LIVE: ${ig.login} login\n`);
+          return;
+        }
         console.log(`\n  Queue is running →  http://localhost:${cfg.port}`);
         console.log(ig.dryRun ? '  🧪 DRY RUN: nothing will actually post.' : `  🟢 LIVE: ${ig.login} login, ${ig.uploadMode} upload`);
         console.log('  The scheduler runs while this window is open. The Mac won\'t idle-sleep meanwhile');

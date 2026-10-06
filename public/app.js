@@ -159,6 +159,7 @@ function searchBox(value, onInput, placeholder) {
 async function api(path, opts = {}) {
   opts.headers = { ...(opts.headers || {}), 'X-Queue': '1' };
   const res = await fetch(path, opts);
+  if (res.status === 401 && S.status?.hosted) { location.reload(); throw new Error('Signed out'); } // hosted: session ended → sign-in page
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `Something went wrong (${res.status})`);
   return body;
@@ -282,7 +283,7 @@ function renderChrome() {
   const st = S.status;
   const live = st && !st.dryRun && st.account;
   const acct = $('#account');
-  acct.onclick = live ? null : () => (location.hash = '#/welcome');
+  acct.onclick = live ? null : () => (location.hash = '#/connect');
   acct.classList.toggle('clickable', !live);
   acct.title = live ? '' : 'Connect Instagram';
   $('#demoTag')?.classList.toggle('hidden', !isDemo());
@@ -800,7 +801,7 @@ VIEWS.accounts = (c) => {
       action = btn(D[2], D[2] === 'Manage' ? 'secondary' : 'primary', () => (p.id === 'instagram' ? manageInstagram() : toast(D[2] === 'Manage' ? `Demo: ${p.name} is connected as ${ex.handle}` : `Demo: connecting ${p.name} isn't wired up yet`)));
     } else if (p.live) {
       state = st?.dryRun ? 'Dry run' : st?.account ? 'Connected' : 'Problem'; cls = st?.dryRun ? 'missed' : st?.account ? 'posted' : 'failed';
-      action = btn(st?.account && !st.dryRun ? 'Manage' : 'Connect', st?.account && !st.dryRun ? 'secondary' : 'primary', () => manageInstagram());
+      action = btn(st?.account && !st.dryRun ? 'Manage' : 'Connect', st?.account && !st.dryRun ? 'secondary' : 'primary', () => (st?.account && !st.dryRun ? manageInstagram() : (location.hash = '#/connect')));
     } else { state = 'Coming soon'; cls = 'soon'; action = btn('Coming soon', 'secondary', null, { disabled: true }); }
     grid.append(el('div', { class: 'card platform' },
       el('div', { class: 'row' }, el('span', { class: 'pbadge', style: 'width:36px;height:36px', html: svgLogo(p.id) }), el('div', { style: 'flex:1' }, el('h3', { class: 'h3' }, p.name), el('div', { class: 'small faint' }, ex ? ex.handle || 'Not connected' : p.live ? (st?.account && !st.dryRun ? `@${st.account}` : 'Not connected yet') : 'Not available yet')), el('span', { class: `pill ${cls}` }, state)),
@@ -834,8 +835,8 @@ function manageInstagram() {
     const kv = (k, v) => el('div', { class: 'kv' }, el('span', { class: 'k' }, k), el('span', { class: 'mono small' }, v));
     m.append(el('div', { class: 'row' }, el('span', { class: 'pbadge', style: 'width:36px;height:36px', html: svgLogo('instagram') }), el('h2', { class: 'h2', style: 'flex:1' }, 'Instagram')),
       el('div', { class: 'stack', style: 'gap:2px' }, kv('Account', st?.account && !st.dryRun ? `@${st.account}` : 'Not connected'), kv('Login type', cfg.login || st?.login || '—'), kv('Upload method', cfg.uploadMode || st?.uploadMode || '—'), kv('Login key', st?.dryRun ? '—' : st?.tokenDaysLeft != null ? `${st.tokenDaysLeft} days left` : 'Renews itself')),
-      el('div', { class: 'inset small muted' }, st?.dryRun ? 'Queue is in dry run: nothing posts until a login key is in .env. Follow the Meta Setup Guide (about 30 minutes), then restart Queue.' : 'Your login key lives in .env and renews itself. To switch accounts, replace IG_ACCESS_TOKEN and IG_USER_ID, then restart Queue.'),
-      el('div', { class: 'foot' }, btn('Close', 'primary', close)));
+      el('div', { class: 'inset small muted' }, st?.dryRun ? 'Queue is in dry run: nothing posts until you connect. It takes about 20 minutes, once.' : 'Your login key is saved on this Mac and renews itself. To switch accounts, disconnect and connect the other one.'),
+      el('div', { class: 'foot' }, st?.dryRun ? btn('Connect Instagram', 'primary', () => { close(); location.hash = '#/connect'; }) : btn('Disconnect', 'ghost danger', () => { close(); disconnectIg(); }), btn('Close', st?.dryRun ? 'ghost' : 'primary', close)));
   });
 }
 
@@ -888,7 +889,7 @@ VIEWS.settings = async (c) => {
       ['Original files', 'Never changed. Queue always works on a copy', val('Untouched')]]],
     ['notifications', 'Notifications', [['Mac notifications', 'When a post goes live, fails, or misses its time', el('button', { class: 'toggle' + (cfg.notify ? ' on' : ''), type: 'button', 'aria-pressed': String(cfg.notify), 'aria-label': 'Mac notifications', on: { click: () => saveSetting({ notify: !cfg.notify }) } })]]],
     ['background', 'Background', [['Start at login', 'Runs without a Terminal window', el('div', { class: 'row', style: 'gap:10px' }, el('code', { class: 'cmd' }, `node bin/queue.js autostart ${cfg.autostart ? 'off' : 'on'}`), tog(cfg.autostart))]]],
-    ['connection', 'Connection', [['Instagram login', 'IG_LOGIN', val(cfg.login)], ['Upload method', cfg.uploadMode === 'url' ? 'Instagram downloads your original from a temporary link' : 'Direct upload to Meta', val(cfg.uploadMode)], ['Graph API version', 'GRAPH_VERSION', val(cfg.graphVersion)]]],
+    ['connection', 'Connection', [...(S.status?.hosted ? [['Signed in', 'This Queue is online. Sign out on shared computers.', btn('Sign out', 'secondary small', async () => { await api('/api/logout', { method: 'POST' }); location.href = '/'; })]] : []), ['Instagram login', 'IG_LOGIN', val(cfg.login)], ['Upload method', cfg.uploadMode === 'url' ? 'Instagram downloads your original from a temporary link' : 'Direct upload to Meta', val(cfg.uploadMode)], ['Graph API version', 'GRAPH_VERSION', val(cfg.graphVersion)]]],
   ];
   const nav = el('nav', { class: 'subnav' }, ...sections.map(([id, title], i) => el('a', { href: `#/settings`, class: i === 0 ? 'on' : '', 'data-k': id, on: { click: (e) => { e.preventDefault(); document.getElementById(`set-${id}`).scrollIntoView({ behavior: 'smooth', block: 'start' }); } } }, title)));
   const body = el('div', { style: 'min-width:0' }, ...sections.map(([id, title, rows]) => el('div', { class: 'card', id: `set-${id}`, style: 'margin-bottom:16px;scroll-margin-top:12px' }, el('h2', { class: 'h3', style: 'margin-bottom:6px' }, title), ...rows.map(([t, d, ctrl]) => el('div', { class: 'set-row' }, el('div', { class: 'txt' }, el('b', {}, t), el('div', { class: 'small muted' }, d)), ctrl)))));

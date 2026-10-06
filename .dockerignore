@@ -1,0 +1,9 @@
+.env
+data
+media
+demo
+node_modules
+.git
+test
+*.conformed.mp4
+*.sdr.mp4
