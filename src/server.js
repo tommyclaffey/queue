@@ -18,7 +18,8 @@ import { compare, download } from './quality.js';
 import { mergeSettings, saveSettings } from './settings.js';
 import { updateEnv } from './envfile.js';
 import { InstagramClient } from './instagram.js';
-import { randomBytes, createHmac, createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { Accounts, SESSION_DAYS } from './accounts.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFileSync, writeFileSync, copyFileSync } from 'node:fs';
@@ -170,28 +171,22 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
   const allowedHost = (h) => /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(h || '');
   const allowedOrigin = (o) => !o || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o);
 
-  // ---- Hosted mode (Railway etc.): the app is on the public internet, so everything except the
-  // sign-in page and Instagram's temporary video links needs a session from the password.
-  const SESSION_DAYS = 30;
-  let sessionSecret = null;
-  if (hosted) {
-    if (!password) throw new Error('Hosted mode needs a password (QUEUE_PASSWORD).');
-    const f = join(dataDir, 'session.secret');
-    try { sessionSecret = readFileSync(f, 'utf8').trim(); } catch {}
-    if (!sessionSecret) { mkdirSync(dataDir, { recursive: true }); sessionSecret = randomBytes(32).toString('hex'); writeFileSync(f, sessionSecret, { mode: 0o600 }); }
-  }
-  const pwHash = password ? createHash('sha256').update(password).digest() : null;
-  // Changing the password signs every device out (it's part of the signature).
-  const sign = (exp) => createHmac('sha256', sessionSecret).update(`${exp}.${pwHash?.toString('hex')}`).digest('hex');
+  // ---- Hosted mode (Railway etc.): on the public internet, so everything except the sign-in
+  // page and Instagram's temporary video links needs a signed-in account (src/accounts.js).
+  if (hosted && (!password || password.length < 12)) throw new Error('Hosted mode needs QUEUE_PASSWORD (12+ characters): the one-time setup code.');
+  const accounts = hosted ? new Accounts(dataDir) : null;
+  const setupHash = password ? createHash('sha256').update(password).digest() : null;
   const cookieOf = (req) => (/(?:^|;\s*)queue_session=([^;]+)/.exec(req.headers.cookie || '') || [])[1];
-  const authed = (req) => {
-    if (!hosted) return true;
-    const [exp, sig] = String(cookieOf(req) || '').split('.');
-    if (!exp || !sig || Number(exp) < Date.now() || sig.length !== 64) return false;
-    try { return timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(sign(exp), 'hex')); } catch { return false; }
-  };
-  const attempts = new Map(); // ip → { n, until } — 10 wrong passwords locks that address out for 15 min
+  const userOf = (req) => (hosted ? accounts.fromSession(cookieOf(req)) : null);
+  const attempts = new Map(); // ip → { n, until } — 10 failed tries locks that address out for 15 min
   const clientIp = (req) => String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+  const locked = (ip) => { const a = attempts.get(ip); return a && a.n >= 10 && a.until > Date.now(); };
+  const failed = (ip) => { const a = attempts.get(ip); attempts.set(ip, { n: a && a.until > Date.now() ? a.n + 1 : 1, until: Date.now() + 15 * 60_000 }); };
+  const startSession = (req, res, u, body = {}) => {
+    const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': `queue_session=${accounts.sessionFor(u)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${secure}` });
+    res.end(JSON.stringify({ ok: true, user: accounts.publicUser(u), ...body }));
+  };
   const sameOrigin = (req) => { const o = req.headers.origin; return !o || o === `https://${req.headers.host}` || o === `http://${req.headers.host}`; };
 
   const server = createServer(async (req, res) => {
@@ -206,24 +201,31 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
     if (req.method !== 'GET' && (req.headers['x-queue'] !== '1' || !(hosted ? sameOrigin(req) : allowedOrigin(req.headers.origin)))) {
       return send(res, 403, { error: 'Forbidden' });
     }
-    if (hosted && !authed(req)) {
-      if (req.method === 'POST' && url.pathname === '/api/login') {
-        const ip = clientIp(req); const a = attempts.get(ip);
-        if (a && a.n >= 10 && a.until > Date.now()) return send(res, 429, { error: 'Too many wrong passwords. Try again in 15 minutes.' });
-        let given = '';
-        try { given = String((await readJson(req)).password || ''); } catch {}
-        const ok = timingSafeEqual(createHash('sha256').update(given).digest(), pwHash);
-        if (!ok) {
-          const n = a && a.until > Date.now() ? a.n + 1 : 1;
-          attempts.set(ip, { n, until: Date.now() + 15 * 60_000 });
-          return send(res, 401, { error: 'Wrong password.' });
-        }
-        attempts.delete(ip);
-        const exp = Date.now() + SESSION_DAYS * 86_400_000;
-        const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': `queue_session=${exp}.${sign(exp)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${secure}` });
-        return res.end(JSON.stringify({ ok: true }));
+    const me = userOf(req);
+    if (hosted && req.method === 'GET' && url.pathname === '/api/auth/state') return send(res, 200, { firstRun: accounts.firstRun, user: accounts.publicUser(me) });
+    if (hosted && req.method === 'POST' && ['/api/auth/signup', '/api/auth/signin', '/api/auth/reset'].includes(url.pathname)) {
+      const ip = clientIp(req);
+      if (locked(ip)) return send(res, 429, { error: 'Too many tries. Wait 15 minutes, then try again.' });
+      let b = {}; try { b = await readJson(req); } catch {}
+      if (url.pathname === '/api/auth/signup') {
+        if (!accounts.firstRun) return send(res, 403, { error: 'This Queue already has an owner. Sign in instead.' });
+        const ok = timingSafeEqual(createHash('sha256').update(String(b.setupCode || '')).digest(), setupHash);
+        if (!ok) { failed(ip); return send(res, 401, { error: 'That setup code isn’t right. It’s QUEUE_PASSWORD in Railway → Variables.' }); }
+        try { const u = await accounts.create(b); attempts.delete(ip); return startSession(req, res, u); }
+        catch (err) { return send(res, 400, { error: err.message }); }
       }
+      if (url.pathname === '/api/auth/reset') {
+        const ok = timingSafeEqual(createHash('sha256').update(String(b.setupCode || '')).digest(), setupHash);
+        if (!ok) { failed(ip); return send(res, 401, { error: 'That setup code isn’t right. It’s QUEUE_PASSWORD in Railway → Variables.' }); }
+        try { const u = await accounts.resetPassword(b.email, b.password); attempts.delete(ip); return startSession(req, res, u); }
+        catch (err) { return send(res, 400, { error: err.message }); }
+      }
+      const u = await accounts.signIn(b.email, b.password);
+      if (!u) { failed(ip); return send(res, 401, { error: 'Wrong email or password.' }); }
+      attempts.delete(ip);
+      return startSession(req, res, u);
+    }
+    if (hosted && !me) {
       const name = url.pathname === '/' ? 'login.html' : url.pathname.slice(1);
       if (req.method === 'GET' && LOGIN_FILES.has(name)) {
         res.writeHead(200, { 'Content-Type': TYPES[extname(name)] + '; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -236,6 +238,11 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
     if (hosted && req.method === 'POST' && url.pathname === '/api/logout') {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': 'queue_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' });
       return res.end(JSON.stringify({ ok: true }));
+    }
+    if (hosted && req.method === 'POST' && url.pathname === '/api/auth/password') {
+      let b = {}; try { b = await readJson(req); } catch {}
+      try { const u = await accounts.changePassword(me.id, b.current, b.next); return startSession(req, res, u); }
+      catch (err) { return send(res, 400, { error: err.message }); }
     }
     try {
       // The app itself: a fixed allowlist of files, never arbitrary paths.
@@ -367,6 +374,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
           accountError,
           tokenDaysLeft: tokens?.daysLeft() ?? null,
           hosted,
+          user: hosted ? accounts.publicUser(me) : null,
           nextCheckAt,
           tickMs,
         });

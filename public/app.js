@@ -842,6 +842,15 @@ function manageInstagram() {
 
 // ================================================================ SETTINGS
 let settingsSpy = null;
+function changePassword() {
+  modal((m, close) => {
+    const cur = el('input', { class: 'input', type: 'password', autocomplete: 'current-password' });
+    const next = el('input', { class: 'input', type: 'password', autocomplete: 'new-password' });
+    const err = el('div', { class: 'small', style: 'color:var(--danger)' });
+    m.append(el('h2', { class: 'h2' }, 'Change password'), el('label', { class: 'field' }, el('span', {}, 'Current password'), cur), el('label', { class: 'field' }, el('span', {}, 'New password (10+ characters)'), next), err,
+      el('div', { class: 'foot' }, btn('Cancel', 'ghost', close), btn('Change', 'primary', async () => { try { await api('/api/auth/password', json('POST', { current: cur.value, next: next.value })); close(); toast('Password changed. Other devices are signed out.'); } catch (e) { err.textContent = e.message; } })));
+  });
+}
 async function saveSetting(patch) {
   try { S.config = await api('/api/config', json('PATCH', patch)); toast('Saved'); }
   catch (e) { toast(e.message, true); }
@@ -889,7 +898,10 @@ VIEWS.settings = async (c) => {
       ['Original files', 'Never changed. Queue always works on a copy', val('Untouched')]]],
     ['notifications', 'Notifications', [['Mac notifications', 'When a post goes live, fails, or misses its time', el('button', { class: 'toggle' + (cfg.notify ? ' on' : ''), type: 'button', 'aria-pressed': String(cfg.notify), 'aria-label': 'Mac notifications', on: { click: () => saveSetting({ notify: !cfg.notify }) } })]]],
     ['background', 'Background', [['Start at login', 'Runs without a Terminal window', el('div', { class: 'row', style: 'gap:10px' }, el('code', { class: 'cmd' }, `node bin/queue.js autostart ${cfg.autostart ? 'off' : 'on'}`), tog(cfg.autostart))]]],
-    ['connection', 'Connection', [...(S.status?.hosted ? [['Signed in', 'This Queue is online. Sign out on shared computers.', btn('Sign out', 'secondary small', async () => { await api('/api/logout', { method: 'POST' }); location.href = '/'; })]] : []), ['Instagram login', 'IG_LOGIN', val(cfg.login)], ['Upload method', cfg.uploadMode === 'url' ? 'Instagram downloads your original from a temporary link' : 'Direct upload to Meta', val(cfg.uploadMode)], ['Graph API version', 'GRAPH_VERSION', val(cfg.graphVersion)]]],
+    ['connection', 'Connection', [...(S.status?.hosted ? [
+        ['Signed in as', S.status.user ? `${S.status.user.name} · ${S.status.user.email}` : 'This Queue is online', btn('Sign out', 'secondary small', async () => { await api('/api/logout', { method: 'POST' }); location.href = '/'; })],
+        ['Password', 'Changing it signs out every other device', btn('Change password', 'secondary small', changePassword)],
+      ] : []), ['Instagram login', 'IG_LOGIN', val(cfg.login)], ['Upload method', cfg.uploadMode === 'url' ? 'Instagram downloads your original from a temporary link' : 'Direct upload to Meta', val(cfg.uploadMode)], ['Graph API version', 'GRAPH_VERSION', val(cfg.graphVersion)]]],
   ];
   const nav = el('nav', { class: 'subnav' }, ...sections.map(([id, title], i) => el('a', { href: `#/settings`, class: i === 0 ? 'on' : '', 'data-k': id, on: { click: (e) => { e.preventDefault(); document.getElementById(`set-${id}`).scrollIntoView({ behavior: 'smooth', block: 'start' }); } } }, title)));
   const body = el('div', { style: 'min-width:0' }, ...sections.map(([id, title, rows]) => el('div', { class: 'card', id: `set-${id}`, style: 'margin-bottom:16px;scroll-margin-top:12px' }, el('h2', { class: 'h3', style: 'margin-bottom:6px' }, title), ...rows.map(([t, d, ctrl]) => el('div', { class: 'set-row' }, el('div', { class: 'txt' }, el('b', {}, t), el('div', { class: 'small muted' }, d)), ctrl)))));

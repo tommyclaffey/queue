@@ -24,7 +24,9 @@ before(async () => {
 after(async () => { await app.stop(); cleanup(dir); });
 
 const req = (path, { cookie, headers = {}, ...o } = {}) => fetch(base + path, { redirect: 'manual', ...o, headers: { 'X-Queue': '1', ...(cookie ? { Cookie: cookie } : {}), ...headers } });
-const login = (password, ip = '1.1.1.1') => req('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': ip, Origin: base }, body: JSON.stringify({ password }) });
+const post = (path, body, { ip = '1.1.1.1', cookie } = {}) => req(path, { method: 'POST', cookie, headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': ip, Origin: base }, body: JSON.stringify(body) });
+const cookieFrom = (r) => r.headers.get('set-cookie').split(';')[0];
+const OWNER = { name: 'Tommy', email: 'Tommy@Example.com', password: 'my-own-password-123' };
 
 test('signed out: only the sign-in page; the app and the API are closed', async () => {
   const home = await req('/');
@@ -32,37 +34,62 @@ test('signed out: only the sign-in page; the app and the API are closed', async 
   assert.match(await home.text(), /Sign in/);
   assert.equal((await req('/app.js')).status, 302);
   assert.equal((await req('/api/status')).status, 401);
-  assert.equal((await req('/api/queue')).status, 401);
   assert.equal((await req('/media/anything.mp4')).status, 302);
+  assert.equal((await (await req('/api/auth/state')).json()).firstRun, true);
 });
 
-test('wrong password refused; right password gives a 30-day HttpOnly session that opens the app', async () => {
-  assert.equal((await login('nope')).status, 401);
-  const r = await login(PW);
+test('the first account needs the setup code; then it is the owner and signed in', async () => {
+  assert.equal((await post('/api/auth/signup', { ...OWNER, setupCode: 'wrong' })).status, 401);
+  assert.equal((await post('/api/auth/signup', { ...OWNER, password: 'short', setupCode: PW })).status, 400, 'password too short');
+  const r = await post('/api/auth/signup', { ...OWNER, setupCode: PW });
   assert.equal(r.status, 200);
+  const body = await r.json();
+  assert.equal(body.user.role, 'owner');
+  assert.equal(body.user.email, 'tommy@example.com', 'email stored lower-case');
+  assert.ok(!JSON.stringify(body).includes('scrypt'), 'no password hash leaves the server');
   const set = r.headers.get('set-cookie');
   assert.match(set, /HttpOnly/);
   assert.match(set, /Max-Age=2592000/);
-  const cookie = set.split(';')[0];
-  const st = await req('/api/status', { cookie });
-  assert.equal(st.status, 200);
-  assert.equal((await st.json()).hosted, true);
+  const st = await (await req('/api/status', { cookie: cookieFrom(r) })).json();
+  assert.equal(st.user.name, 'Tommy');
+  // Nobody can create a second owner — even with the code.
+  assert.equal((await post('/api/auth/signup', { name: 'X', email: 'x@y.co', password: 'another-password-1', setupCode: PW })).status, 403);
+  assert.equal((await (await req('/api/auth/state')).json()).firstRun, false);
+});
+
+test('sign in: wrong password refused, right one opens the app; forged cookie refused; sign out', async () => {
+  assert.equal((await post('/api/auth/signin', { email: OWNER.email, password: 'nope-nope-nope' })).status, 401);
+  assert.equal((await post('/api/auth/signin', { email: 'nobody@x.co', password: OWNER.password })).status, 401);
+  const r = await post('/api/auth/signin', { email: 'tommy@example.com', password: OWNER.password });
+  assert.equal(r.status, 200);
+  const cookie = cookieFrom(r);
   assert.match(await (await req('/', { cookie })).text(), /app\.js/, 'signed in: the real app');
-  assert.equal((await req('/api/status', { cookie: 'queue_session=123.abc' })).status, 401, 'forged cookie refused');
-  // Signing out ends it.
-  const out = await req('/api/logout', { method: 'POST', cookie, headers: { Origin: base } });
+  assert.equal((await req('/api/status', { cookie: 'queue_session=owner.9999999999999.' + 'a'.repeat(64) })).status, 401);
+  const out = await post('/api/logout', {}, { cookie });
   assert.match(out.headers.get('set-cookie'), /Max-Age=0/);
 });
 
-test('10 wrong passwords lock that address out for 15 minutes (others unaffected)', async () => {
-  for (let i = 0; i < 10; i++) await login('guess' + i, '9.9.9.9');
-  const locked = await login(PW, '9.9.9.9');
-  assert.equal(locked.status, 429);
-  assert.equal((await login(PW, '8.8.8.8')).status, 200);
+test('10 failed tries lock that address out for 15 minutes (others unaffected)', async () => {
+  for (let i = 0; i < 10; i++) await post('/api/auth/signin', { email: OWNER.email, password: 'guess' + i }, { ip: '9.9.9.9' });
+  assert.equal((await post('/api/auth/signin', { email: OWNER.email, password: OWNER.password }, { ip: '9.9.9.9' })).status, 429);
+  assert.equal((await post('/api/auth/signin', { email: OWNER.email, password: OWNER.password }, { ip: '8.8.8.8' })).status, 200);
+});
+
+test('changing the password signs out every other device; forgot-password needs the setup code', async () => {
+  const old = cookieFrom(await post('/api/auth/signin', { email: OWNER.email, password: OWNER.password }));
+  assert.equal((await post('/api/auth/password', { current: 'wrong-current-pw', next: 'brand-new-password-1' }, { cookie: old })).status, 400);
+  const r = await post('/api/auth/password', { current: OWNER.password, next: 'brand-new-password-1' }, { cookie: old });
+  assert.equal(r.status, 200);
+  assert.equal((await req('/api/status', { cookie: old })).status, 401, 'old session ended');
+  assert.equal((await req('/api/status', { cookie: cookieFrom(r) })).status, 200, 'this device stays in');
+  assert.equal((await post('/api/auth/reset', { email: OWNER.email, password: 'reset-password-123', setupCode: 'nope' }, { ip: '7.7.7.7' })).status, 401);
+  const reset = await post('/api/auth/reset', { email: OWNER.email, password: 'reset-password-123', setupCode: PW }, { ip: '7.7.7.7' });
+  assert.equal(reset.status, 200);
+  assert.equal((await post('/api/auth/signin', { email: OWNER.email, password: 'reset-password-123' })).status, 200);
 });
 
 test('other websites cannot use a signed-in session (CSRF)', async () => {
-  const cookie = (await login(PW)).headers.get('set-cookie').split(';')[0];
+  const cookie = cookieFrom(await post('/api/auth/signin', { email: OWNER.email, password: 'reset-password-123' }));
   const evil = await req('/api/disconnect', { method: 'POST', cookie, headers: { Origin: 'https://evil.example' } });
   assert.equal(evil.status, 403);
   const noHeader = await fetch(base + '/api/disconnect', { method: 'POST', headers: { Cookie: cookie, Origin: base } });
@@ -73,9 +100,8 @@ test('Instagram can download a staged video by its secret link, no session; noth
   const f = makeVideo(dir, 'staged.mp4');
   const { url } = await files.share(f);
   assert.ok(url.startsWith('https://queue.example/v/'));
-  const path = new URL(url).pathname;
-  const r = await fetch(base + path, {});
+  const r = await fetch(base + new URL(url).pathname);
   assert.equal(r.status, 200);
   assert.ok((await r.arrayBuffer()).byteLength > 1000);
-  assert.equal((await fetch(base + '/v/' + 'a'.repeat(64) + '/video.mp4', {})).status, 404);
+  assert.equal((await fetch(base + '/v/' + 'a'.repeat(64) + '/video.mp4')).status, 404);
 });

@@ -5,34 +5,75 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex" />
 <title>Sign in · Queue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" />
 <link rel="stylesheet" href="/styles.css" />
 <style>
   .signin { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
-  .signin .card { width: min(380px, 100%); display: flex; flex-direction: column; gap: 16px; padding: 28px; }
+  .signin .card { width: min(400px, 100%); display: flex; flex-direction: column; gap: 16px; padding: 30px; }
   .signin .logo { padding: 0; }
+  .signin .switch { text-align: center; }
+  .signin .hint { font-size: 12px; line-height: 17px; color: var(--text-tertiary); }
+  .hidden { display: none !important; }
 </style>
 <script>(function () { var t = localStorage.getItem('queue-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; })();</script>
 </head>
 <body>
 <main class="signin">
-  <form class="card" id="f">
+  <form class="card" id="f" novalidate>
     <div class="logo"><span class="logo-mark"><svg viewBox="0 0 24 24" width="12" height="12"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></svg></span><span class="logo-word">Queue</span></div>
-    <div><h1 class="h2">Sign in</h1><div class="small muted">This Queue is online. Enter its password.</div></div>
-    <label class="field"><span>Password</span><input class="input" id="pw" type="password" autocomplete="current-password" required autofocus /></label>
+    <div>
+      <h1 class="h2" id="title">Sign in</h1>
+      <div class="small muted" id="lede">Welcome back.</div>
+    </div>
+    <label class="field name hidden"><span>Your name</span><input class="input" id="name" autocomplete="name" /></label>
+    <label class="field"><span>Email</span><input class="input" id="email" type="email" autocomplete="email" required /></label>
+    <label class="field"><span>Password</span><input class="input" id="pw" type="password" autocomplete="current-password" required /><span class="hint up reset hidden">At least 10 characters.</span></label>
+    <label class="field code hidden"><span>Setup code</span><input class="input" id="code" type="password" autocomplete="off" /><span class="hint">Only needed once, to prove this Queue is yours. It's <b>QUEUE_PASSWORD</b> in Railway → your project → Variables.</span></label>
     <div class="small" id="err" style="color:var(--danger)" role="alert"></div>
     <button class="btn primary block" id="go" type="submit">Sign in</button>
+    <div class="small faint switch" id="note"></div>
   </form>
 </main>
 <script>
-  document.getElementById('f').addEventListener('submit', async (e) => {
+  const $ = (id) => document.getElementById(id);
+  let view = 'in'; // in | up (first account) | reset (forgot password)
+  function mode(v) {
+    view = v;
+    const up = v === 'up', reset = v === 'reset';
+    document.querySelectorAll('.name').forEach((n) => n.classList.toggle('hidden', !up));
+    document.querySelectorAll('.code').forEach((n) => n.classList.toggle('hidden', v === 'in'));
+    document.querySelectorAll('.up').forEach((n) => n.classList.toggle('hidden', v === 'in'));
+    $('title').textContent = up ? 'Create your Queue account' : reset ? 'Set a new password' : 'Sign in';
+    $('lede').textContent = up ? 'You’re the first one here, so this account will own this Queue.' : reset ? 'Use the setup code to prove it’s you.' : 'Welcome back.';
+    document.querySelector('label[for-pw], #pw').previousElementSibling.textContent = reset ? 'New password' : 'Password';
+    $('go').textContent = up ? 'Create account' : reset ? 'Set password and sign in' : 'Sign in';
+    $('pw').autocomplete = v === 'in' ? 'current-password' : 'new-password';
+    $('note').replaceChildren();
+    if (v !== 'up') {
+      const a = document.createElement('a'); a.href = '#'; a.className = 'link';
+      a.textContent = reset ? '← Back to sign in' : 'Forgot your password?';
+      a.addEventListener('click', (e) => { e.preventDefault(); $('err').textContent = ''; mode(reset ? 'in' : 'reset'); });
+      $('note').append(a);
+    }
+    (up ? $('name') : $('email')).focus();
+  }
+  fetch('/api/auth/state', { headers: { 'X-Queue': '1' } }).then((r) => r.json()).then((s) => mode(s.firstRun ? 'up' : 'in')).catch(() => mode('in'));
+  $('f').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const go = document.getElementById('go'), err = document.getElementById('err');
+    const go = $('go'), err = $('err');
     go.disabled = true; err.textContent = '';
+    const body = view === 'up'
+      ? { name: $('name').value, email: $('email').value, password: $('pw').value, setupCode: $('code').value }
+      : view === 'reset' ? { email: $('email').value, password: $('pw').value, setupCode: $('code').value }
+      : { email: $('email').value, password: $('pw').value };
     try {
-      const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Queue': '1' }, body: JSON.stringify({ password: document.getElementById('pw').value }) });
+      const r = await fetch(`/api/auth/${view === 'up' ? 'signup' : view === 'reset' ? 'reset' : 'signin'}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Queue': '1' }, body: JSON.stringify(body) });
       if (r.ok) return location.reload();
       err.textContent = (await r.json().catch(() => ({}))).error || 'Something went wrong.';
-    } catch { err.textContent = "Couldn't reach Queue."; }
+      if (r.status === 403) mode('in');
+    } catch { err.textContent = 'Couldn’t reach Queue.'; }
     go.disabled = false;
   });
 </script>
