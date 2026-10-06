@@ -16,6 +16,15 @@
   .signin .switch { text-align: center; }
   .signin .hint { font-size: 12px; line-height: 17px; color: var(--text-tertiary); }
   .hidden { display: none !important; }
+  .providers { display: flex; flex-direction: column; gap: 8px; }
+  .prov { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 10px 14px; border-radius: 999px; border: 1px solid var(--border-default); background: var(--surface-1); color: var(--text-primary); font: 500 14px var(--font); cursor: pointer; }
+  .prov:hover { background: var(--surface-hover); }
+  .prov svg { width: 18px; height: 18px; flex: none; }
+  .or { display: flex; align-items: center; gap: 10px; color: var(--text-tertiary); font-size: 12px; }
+  .or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--border-subtle); }
+  .setup { font-size: 12.5px; line-height: 18px; background: var(--surface-2); border-radius: 10px; padding: 12px; color: var(--text-secondary); }
+  .setup ol { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+  .setup code { font: 11.5px var(--mono); word-break: break-all; background: var(--surface-1); padding: 1px 4px; border-radius: 4px; }
 </style>
 <script>(function () { var t = localStorage.getItem('queue-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; })();</script>
 </head>
@@ -26,6 +35,12 @@
     <div>
       <h1 class="h2" id="title">Sign in</h1>
       <div class="small muted" id="lede">Welcome back.</div>
+    </div>
+    <div class="providers" id="providers">
+      <button type="button" class="prov" data-p="google"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>Continue with Google</button>
+      <button type="button" class="prov" data-p="facebook"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#0866FF" d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z"/></svg>Continue with Facebook</button>
+      <div class="setup hidden" id="setup"></div>
+      <div class="or">or use email</div>
     </div>
     <label class="field name hidden"><span>Your name</span><input class="input" id="name" autocomplete="name" /></label>
     <label class="field"><span>Email</span><input class="input" id="email" type="email" autocomplete="email" required /></label>
@@ -59,7 +74,32 @@
     }
     (up ? $('name') : $('email')).focus();
   }
-  fetch('/api/auth/state', { headers: { 'X-Queue': '1' } }).then((r) => r.json()).then((s) => mode(s.firstRun ? 'up' : 'in')).catch(() => mode('in'));
+  let providers = {};
+  const qs = new URLSearchParams(location.search);
+  function showSetup(p) {
+    const info = providers[p] || {}; const box = $('setup');
+    const name = p === 'google' ? 'Google' : 'Facebook';
+    const steps = p === 'google'
+      ? ['Google Cloud Console → Credentials → your OAuth client (the one Growth uses works).', 'Under Authorised redirect URIs, add the address below → Save.', 'In Railway → queue → Variables, add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.']
+      : ['developers.facebook.com/apps → your app → add the "Facebook Login" product.', 'Facebook Login → Settings → Valid OAuth Redirect URIs: add the address below → Save.', 'In Railway → queue → Variables, add FACEBOOK_APP_ID and FACEBOOK_APP_SECRET (App settings → Basic).'];
+    box.replaceChildren();
+    const b = document.createElement('b'); b.textContent = `${name} sign-in isn’t switched on yet.`; box.append(b, document.createTextNode(' For the owner, about 5 minutes:'));
+    const ol = document.createElement('ol');
+    for (const t of steps) { const li = document.createElement('li'); li.textContent = t; ol.append(li); }
+    if (info.redirectUri) { const li = document.createElement('li'); li.append('Address: '); const c = document.createElement('code'); c.textContent = info.redirectUri; li.append(c); ol.append(li); }
+    box.append(ol); box.classList.remove('hidden');
+  }
+  document.querySelectorAll('.prov').forEach((b) => b.addEventListener('click', () => {
+    const p = b.dataset.p;
+    if (providers[p]?.on) location.href = `/api/auth/start/${p}`; else showSetup(p);
+  }));
+  fetch('/api/auth/state', { headers: { 'X-Queue': '1' } }).then((r) => r.json()).then((s) => {
+    providers = s.providers || {};
+    mode(s.firstRun ? 'up' : 'in');
+    if (qs.get('error')) $('err').textContent = qs.get('error');
+    if (qs.get('setup')) showSetup(qs.get('setup'));
+    if (qs.has('error') || qs.has('setup')) history.replaceState(null, '', '/');
+  }).catch(() => mode('in'));
   $('f').addEventListener('submit', async (e) => {
     e.preventDefault();
     const go = $('go'), err = $('err');

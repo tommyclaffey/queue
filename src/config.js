@@ -41,6 +41,8 @@ export function loadConfig(root) {
     files: new FileShare({ publicBaseUrl, port: Number(env.SHARE_PORT || 0), log, embedded: hosted }),
     hosted,
     password: env.QUEUE_PASSWORD || null,
+    publicOrigin: publicBaseUrl,
+    ownerEmail: env.QUEUE_OWNER_EMAIL || null,
     dataDir,
     mediaDir: join(home, 'media'),
     envFile: join(home, '.env'),

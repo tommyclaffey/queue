@@ -55,6 +55,26 @@ export class Accounts {
     return u;
   }
 
+  findByEmail(email) { return this.#read().find((x) => x.email === normEmail(email)) || null; }
+
+  // Signing in with Google or Facebook. An existing account with the same email signs in (and
+  // remembers the provider). With no accounts yet, only the named owner email may create one.
+  providerSignIn({ provider, email, name }, ownerEmail) {
+    const list = this.#read();
+    const e = normEmail(email);
+    if (!e) throw new Error('That account didn’t share an email address, so Queue can’t match it to you.');
+    const u = list.find((x) => x.email === e);
+    if (u) {
+      if (!(u.providers || []).includes(provider)) { u.providers = [...(u.providers || []), provider]; this.#write(list); }
+      return u;
+    }
+    if (list.length) throw new Error('There’s no Queue account for that email. Ask the owner to add you.');
+    if (!ownerEmail || normEmail(ownerEmail) !== e) throw new Error('This Queue isn’t set up yet. The owner creates the first account (with the setup code, or with the owner’s own email).');
+    const owner = { id: 'owner', name: String(name || e.split('@')[0]).slice(0, 60), email: e, role: 'owner', pw: null, providers: [provider], createdAt: new Date().toISOString() };
+    this.#write([owner]);
+    return owner;
+  }
+
   async signIn(email, password) {
     const u = this.#read().find((x) => x.email === normEmail(email));
     const ok = await Accounts.verify(password, u?.pw);
@@ -64,7 +84,7 @@ export class Accounts {
   async changePassword(userId, current, next) {
     const list = this.#read();
     const u = list.find((x) => x.id === userId);
-    if (!u || !(await Accounts.verify(current, u.pw))) throw new Error('Your current password isn’t right.');
+    if (!u || (u.pw && !(await Accounts.verify(current, u.pw)))) throw new Error('Your current password isn’t right.');
     if (String(next || '').length < MIN_PASSWORD) throw new Error(`Use at least ${MIN_PASSWORD} characters for your new password.`);
     u.pw = await Accounts.hash(String(next));
     this.#write(list);

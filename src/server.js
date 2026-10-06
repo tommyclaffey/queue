@@ -20,6 +20,7 @@ import { updateEnv } from './envfile.js';
 import { InstagramClient } from './instagram.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { Accounts, SESSION_DAYS } from './accounts.js';
+import { OAuth, PROVIDERS } from './oauth.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFileSync, writeFileSync, copyFileSync } from 'node:fs';
@@ -28,7 +29,7 @@ const TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png'
 const PUBLIC_FILES = new Set(['index.html', 'styles.css', 'app.js', 'pages.js']);
 const LOGIN_FILES = new Set(['login.html', 'styles.css']); // all a signed-out visitor can load (hosted mode)
 
-export function startServer({ root, queue, ig, files = null, tokens = null, port = 4400, stageWindowMin = 120, lateLimitMin = 120, notify = () => {}, log = console.log, tickMs = 30_000, mediaDir = join(root, 'media'), dataDir = join(root, 'data'), demo = null, notifyOn = true, envFile = join(root, '.env'), makeIg = (o) => new InstagramClient(o), hosted = false, password = null, host = null }) {
+export function startServer({ root, queue, ig, files = null, tokens = null, port = 4400, stageWindowMin = 120, lateLimitMin = 120, notify = () => {}, log = console.log, tickMs = 30_000, mediaDir = join(root, 'media'), dataDir = join(root, 'data'), demo = null, notifyOn = true, envFile = join(root, '.env'), makeIg = (o) => new InstagramClient(o), hosted = false, password = null, host = null, publicOrigin = null, ownerEmail = null, oauthFetch = fetch }) {
   // Live settings. Explicit options (from loadConfig or tests) win at start; changes made in the
   // app are saved to data/settings.json and applied immediately.
   let settings = { ...mergeSettings(dataDir), stageWindowMin, lateLimitMin, notify: notifyOn };
@@ -175,6 +176,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
   // page and Instagram's temporary video links needs a signed-in account (src/accounts.js).
   if (hosted && (!password || password.length < 12)) throw new Error('Hosted mode needs QUEUE_PASSWORD (12+ characters): the one-time setup code.');
   const accounts = hosted ? new Accounts(dataDir) : null;
+  const oauth = hosted ? new OAuth({ origin: publicOrigin, fetchImpl: oauthFetch }) : null;
   const setupHash = password ? createHash('sha256').update(password).digest() : null;
   const cookieOf = (req) => (/(?:^|;\s*)queue_session=([^;]+)/.exec(req.headers.cookie || '') || [])[1];
   const userOf = (req) => (hosted ? accounts.fromSession(cookieOf(req)) : null);
@@ -202,7 +204,35 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       return send(res, 403, { error: 'Forbidden' });
     }
     const me = userOf(req);
-    if (hosted && req.method === 'GET' && url.pathname === '/api/auth/state') return send(res, 200, { firstRun: accounts.firstRun, user: accounts.publicUser(me) });
+    if (hosted && req.method === 'GET' && url.pathname === '/api/auth/state') {
+      const providers = Object.fromEntries(Object.keys(PROVIDERS).map((p) => [p, { on: oauth.configured(p), redirectUri: publicOrigin ? oauth.redirectUri(p) : null }]));
+      return send(res, 200, { firstRun: accounts.firstRun, user: accounts.publicUser(me), providers });
+    }
+    // Continue with Google / Facebook.
+    const oauthRoute = hosted && req.method === 'GET' && /^\/api\/auth\/(start|callback)\/(google|facebook)$/.exec(url.pathname);
+    if (oauthRoute) {
+      const [, step, p] = oauthRoute;
+      const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+      const go = (to, cookies = []) => { res.writeHead(302, cookies.length ? { Location: to, 'Set-Cookie': cookies } : { Location: to }); res.end(); };
+      if (step === 'start') {
+        if (!oauth.configured(p)) return go(`/?setup=${p}`);
+        const { url: to, state } = oauth.start(p);
+        return go(to, [`queue_oauth=${state}; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=600${secure}`]);
+      }
+      const clear = `queue_oauth=; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=0${secure}`;
+      const ip = clientIp(req);
+      if (locked(ip)) return go(`/?error=${encodeURIComponent('Too many tries. Wait 15 minutes, then try again.')}`, [clear]);
+      try {
+        const cookieState = (/(?:^|;\s*)queue_oauth=([^;]+)/.exec(req.headers.cookie || '') || [])[1];
+        const who = await oauth.finish(p, { code: url.searchParams.get('code'), state: url.searchParams.get('state'), cookieState });
+        const u = accounts.providerSignIn(who, ownerEmail);
+        attempts.delete(ip);
+        return go('/', [clear, `queue_session=${accounts.sessionFor(u)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${secure}`]);
+      } catch (err) {
+        failed(ip);
+        return go(`/?error=${encodeURIComponent(err.message)}`, [clear]);
+      }
+    }
     if (hosted && req.method === 'POST' && ['/api/auth/signup', '/api/auth/signin', '/api/auth/reset'].includes(url.pathname)) {
       const ip = clientIp(req);
       if (locked(ip)) return send(res, 429, { error: 'Too many tries. Wait 15 minutes, then try again.' });
