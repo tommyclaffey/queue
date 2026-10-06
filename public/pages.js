@@ -263,6 +263,25 @@ VIEWS.connect = async (c) => {
       el('div', { class: 'row' }, btn('Run the setup check', 'primary', () => (location.hash = '#/setup')), btn('Disconnect', 'ghost danger', disconnectIg))));
     return;
   }
+  // Online Queue: one click instead of pasting a key.
+  const q = routeQuery();
+  if (st?.hosted) {
+    const oc = st.oneClick || {};
+    const box = el('div', { class: 'card stack', style: 'gap:12px;max-width:1080px;margin-bottom:20px' });
+    if (q.get('error')) box.append(el('div', { class: 'issue error' }, q.get('error')));
+    if (oc.instagram) {
+      box.append(el('div', { class: 'row', style: 'gap:14px' }, el('span', { class: 'pbadge', style: 'width:40px;height:40px', html: svgLogo('instagram') }), el('div', { style: 'flex:1' }, el('h2', { class: 'h3' }, 'Connect with Instagram'), el('div', { class: 'small muted' }, 'Log in to Instagram and tap Allow. Queue saves the key and renews it for you.')), el('a', { class: 'btn primary', href: '/api/connect/start/instagram' }, 'Connect with Instagram')));
+    } else {
+      box.append(el('h2', { class: 'h3' }, 'One-click connect isn’t switched on yet'),
+        el('div', { class: 'small muted' }, 'Once it is, connecting is a single "Connect with Instagram" button. About 5 minutes, once:'),
+        el('ol', { class: 'steps-list small' },
+          el('li', {}, 'In your Meta app: Instagram → API setup with Instagram login → Business login settings.'),
+          el('li', {}, 'Under OAuth redirect URIs, add: ', el('code', { class: 'cmd' }, oc.redirectUri || '(this Queue’s address)/api/connect/callback/instagram')),
+          el('li', {}, 'Copy the Instagram app ID and Instagram app secret from that page into Railway → queue → Variables as INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET.')),
+        el('div', { class: 'small faint' }, 'Until then, paste a key below — it works the same.'));
+    }
+    c.append(box);
+  }
   const step = (n, title, body) => el('div', { class: 'cstep' }, el('span', { class: 'n' }, String(n)), el('div', { class: 'stack', style: 'gap:4px' }, el('b', {}, title), ...body));
   const link = (href, label) => el('a', { class: 'link', href, target: '_blank', rel: 'noopener' }, label, ' ↗');
   const steps = el('div', { class: 'card stack', style: 'gap:18px' }, el('h2', { class: 'h3' }, 'Before you paste'),

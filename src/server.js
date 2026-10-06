@@ -20,7 +20,7 @@ import { updateEnv } from './envfile.js';
 import { InstagramClient } from './instagram.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { Accounts, SESSION_DAYS } from './accounts.js';
-import { OAuth, PROVIDERS } from './oauth.js';
+import { OAuth, PROVIDERS, Connect, CONNECT } from './oauth.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFileSync, writeFileSync, copyFileSync } from 'node:fs';
@@ -113,6 +113,14 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
     return entry;
   }
 
+  // Saves a checked Instagram key and switches over live (used by paste-a-key and one-click connect).
+  function applyConnection({ login, token, userId, acct }) {
+    updateEnv(envFile, { IG_LOGIN: login, IG_ACCESS_TOKEN: token, IG_USER_ID: userId || '', DRY_RUN: '0' });
+    tokens?.reset(token);
+    ig = makeIg({ login, userId: userId || undefined, token, version: ig.version });
+    account = acct; accountError = null;
+  }
+
   async function measure(post) {
     const original = originalOf(post);
     if (!original) throw new Error('The original video is no longer in the Library.');
@@ -177,6 +185,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
   if (hosted && (!password || password.length < 12)) throw new Error('Hosted mode needs QUEUE_PASSWORD (12+ characters): the one-time setup code.');
   const accounts = hosted ? new Accounts(dataDir) : null;
   const oauth = hosted ? new OAuth({ origin: publicOrigin, fetchImpl: oauthFetch }) : null;
+  const connect = hosted ? new Connect({ origin: publicOrigin, fetchImpl: oauthFetch }) : null;
   const setupHash = password ? createHash('sha256').update(password).digest() : null;
   const cookieOf = (req) => (/(?:^|;\s*)queue_session=([^;]+)/.exec(req.headers.cookie || '') || [])[1];
   const userOf = (req) => (hosted ? accounts.fromSession(cookieOf(req)) : null);
@@ -273,7 +282,30 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       let b = {}; try { b = await readJson(req); } catch {}
       try { const u = await accounts.changePassword(me.id, b.current, b.next); return startSession(req, res, u); }
       catch (err) { return send(res, 400, { error: err.message }); }
+    }    // One-click "Connect with Instagram" (hosted, signed in). Not configured → the Connect page shows the steps.
+    const connectRoute = hosted && req.method === 'GET' && /^\/api\/connect\/(start|callback)\/(instagram)$/.exec(url.pathname);
+    if (connectRoute) {
+      const [, step, p] = connectRoute;
+      const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+      const go = (to, cookies = []) => { res.writeHead(302, cookies.length ? { Location: to, 'Set-Cookie': cookies } : { Location: to }); res.end(); };
+      if (step === 'start') {
+        if (!connect.configured(p)) return go('/#/connect?setup=instagram');
+        const { url: to, state } = connect.start(p);
+        return go(to, [`queue_connect=${state}; Path=/api/connect; HttpOnly; SameSite=Lax; Max-Age=600${secure}`]);
+      }
+      const clear = `queue_connect=; Path=/api/connect; HttpOnly; SameSite=Lax; Max-Age=0${secure}`;
+      try {
+        const cookieState = (/(?:^|;\s*)queue_connect=([^;]+)/.exec(req.headers.cookie || '') || [])[1];
+        const { token, userId } = await connect.finish(p, { code: url.searchParams.get('code'), state: url.searchParams.get('state'), cookieState });
+        const candidate = makeIg({ login: 'instagram', token, version: ig.version, retries: 1, retryDelayMs: 300 });
+        const acct = await candidate.account();
+        applyConnection({ login: 'instagram', token, userId: '', acct });
+        return go('/#/setup', [clear]);
+      } catch (err) {
+        return go(`/#/connect?error=${encodeURIComponent(err.message)}`, [clear]);
+      }
     }
+
     try {
       // The app itself: a fixed allowlist of files, never arbitrary paths.
       if (req.method === 'GET' && (url.pathname === '/' || PUBLIC_FILES.has(url.pathname.slice(1)))) {
@@ -405,6 +437,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
           tokenDaysLeft: tokens?.daysLeft() ?? null,
           hosted,
           user: hosted ? accounts.publicUser(me) : null,
+          oneClick: hosted ? { instagram: connect.configured('instagram'), redirectUri: publicOrigin ? connect.redirectUri('instagram') : null } : null,
           nextCheckAt,
           tickMs,
         });
@@ -455,10 +488,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
           const bad = err.code === 190 || err.status === 401;
           return send(res, 400, { error: bad ? "Instagram didn't accept that key. It may be incomplete, expired, or from a different app. Generate a new one and paste it again." : `Instagram couldn't be reached to check the key: ${err.message}` });
         }
-        updateEnv(envFile, { IG_LOGIN: login, IG_ACCESS_TOKEN: token, IG_USER_ID: userId, DRY_RUN: '0' });
-        tokens?.reset(token);
-        ig = makeIg({ login, userId: userId || undefined, token, version: ig.version });
-        account = acct; accountError = null;
+        applyConnection({ login, token, userId, acct });
         return send(res, 200, { account: acct.username, login, uploadMode: ig.uploadMode, needsCloudflared: ig.uploadMode === 'url' && !hosted && !hasCloudflared() });
       }
       if (req.method === 'POST' && resource === 'disconnect') {

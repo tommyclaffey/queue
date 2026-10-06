@@ -320,8 +320,10 @@ function topbar(title, subtitle, actions = []) {
 }
 
 // ---------------------------------------------------------------- router
-const currentRoute = () => (location.hash.replace(/^#\//, '').split('/')[0] || 'dashboard');
-const routeParam = () => decodeURIComponent(location.hash.replace(/^#\//, '').split('/')[1] || '');
+const hashPath = () => location.hash.replace(/^#\//, '').split('?')[0];
+const currentRoute = () => (hashPath().split('/')[0] || 'dashboard');
+const routeParam = () => decodeURIComponent(hashPath().split('/')[1] || '');
+const routeQuery = () => new URLSearchParams(location.hash.split('?')[1] || '');
 const BARE = new Set(['welcome', 'setup']); // full-screen onboarding, no sidebar
 const VIEWS = {};
 async function render() {

@@ -64,3 +64,46 @@ export class OAuth {
     return { ...who, provider: p };
   }
 }
+
+// ---- Connecting Instagram for posting (Instagram API with Instagram Login). Not a sign-in:
+// this gets the long-lived key Queue posts with. Needs the Instagram app ID/secret from Meta's
+// dashboard (Instagram → API setup with Instagram login), and this redirect registered there.
+export const CONNECT = {
+  instagram: {
+    label: 'Instagram', idEnv: 'INSTAGRAM_APP_ID', secretEnv: 'INSTAGRAM_APP_SECRET',
+    authorize: 'https://www.instagram.com/oauth/authorize',
+    params: { response_type: 'code', scope: 'instagram_business_basic,instagram_business_content_publish', enable_fb_login: '0', force_authentication: '1' },
+    async exchange(code, redirectUri, id, secret, fetchImpl = fetch) {
+      const r = await fetchImpl('https://api.instagram.com/oauth/access_token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: id, client_secret: secret, grant_type: 'authorization_code', redirect_uri: redirectUri, code }) });
+      const t = await r.json();
+      const short = t.access_token || t.data?.[0]?.access_token;
+      if (!r.ok || !short) throw new Error(t.error_message || t.error?.message || 'Instagram didn’t connect.');
+      // Swap the 1-hour key for the 60-day one (Queue renews it weekly after this).
+      const q = new URLSearchParams({ grant_type: 'ig_exchange_token', client_secret: secret, access_token: short });
+      const l = await (await fetchImpl(`https://graph.instagram.com/access_token?${q}`)).json();
+      if (!l.access_token) throw new Error(l.error?.message || 'Instagram didn’t give a long-lived key.');
+      return { token: l.access_token, userId: String(t.user_id || t.data?.[0]?.user_id || '') };
+    },
+  },
+};
+
+export class Connect extends OAuth {
+  configured(p) { const c = CONNECT[p]; return !!(c && this.env[c.idEnv] && this.env[c.secretEnv] && this.origin.startsWith('https://')); }
+  redirectUri(p) { return `${this.origin}/api/connect/callback/${p}`; }
+  start(p) {
+    const c = CONNECT[p];
+    const state = randomBytes(24).toString('hex');
+    this.pending.set(state, { provider: p, exp: Date.now() + 10 * 60_000 });
+    const u = new URL(c.authorize);
+    for (const [k, v] of Object.entries({ ...c.params, client_id: this.env[c.idEnv], redirect_uri: this.redirectUri(p), state })) u.searchParams.set(k, v);
+    return { url: u.toString(), state };
+  }
+  async finish(p, { code, state, cookieState }) {
+    const want = this.pending.get(state);
+    this.pending.delete(state);
+    if (!want || want.provider !== p || want.exp < Date.now() || !state || state !== cookieState) throw new Error('That connect link expired or was started in another browser. Try again.');
+    if (!code) throw new Error('Connecting was cancelled.');
+    const c = CONNECT[p];
+    return c.exchange(code, this.redirectUri(p), this.env[c.idEnv], this.env[c.secretEnv], this.fetch);
+  }
+}
