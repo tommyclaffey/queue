@@ -1,4 +1,5 @@
-// Temporary public links for videos, served straight off this Mac.
+// Temporary public links for videos and photos, served straight off this Mac.
+// (Photos ALWAYS go this way: Instagram has no direct upload for images, only image_url.)
 //
 // Why: with Instagram-only login, Meta won't accept a direct upload — it wants a
 // public URL (video_url) that it downloads from. Rather than hand the file to a
@@ -20,7 +21,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { extname } from 'node:path';
 
-const TYPES = { '.mp4': 'video/mp4', '.mov': 'video/quicktime' };
+const TYPES = { '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' };
 const MAX_AGE_MS = 3 * 3600_000; // safety net: no link lives longer than 3h, whatever happens
 
 export function hasCloudflared() {
@@ -57,8 +58,9 @@ export class FileShare {
     const base = await this.#ensureStarted();
     const token = randomBytes(32).toString('hex');
     this.#shares.set(token, { file, at: Date.now() });
-    const ext = extname(file).toLowerCase() === '.mov' ? '.mov' : '.mp4';
-    return { token, url: `${base}/v/${token}/video${ext}` };
+    const ext = extname(file).toLowerCase();
+    if (ext === '.jpg' || ext === '.jpeg') return { token, url: `${base}/v/${token}/photo.jpg` };
+    return { token, url: `${base}/v/${token}/video${ext === '.mov' ? '.mov' : '.mp4'}` };
   }
 
   async unshare(token) {
@@ -88,7 +90,7 @@ export class FileShare {
 
   #handle = (req, res) => {
     try {
-      const m = /^\/v\/([a-f0-9]{64})\/video\.(mp4|mov)$/.exec(req.url.split('?')[0]);
+      const m = /^\/v\/([a-f0-9]{64})\/(?:video\.(?:mp4|mov)|photo\.jpg)$/.exec(req.url.split('?')[0]);
       const entry = m && this.#shares.get(m[1]);
       if (!entry || !['GET', 'HEAD'].includes(req.method)) {
         res.writeHead(404);

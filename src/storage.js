@@ -6,8 +6,11 @@ import { join, basename } from 'node:path';
 
 const UNUSED_GRACE_MS = 60 * 60_000; // an upload you haven't scheduled yet gets an hour's grace
 
-// The upload copy a post's (possibly fixed) file came from: "x.conformed.mp4" / "x.sdr.mp4" → "x.*"
-const stem = (name) => name.replace(/\.(conformed|sdr)\.mp4$/, '').replace(/\.[^.]+$/, '');
+// The upload copy a post's (possibly fixed) file came from: "x.conformed.mp4" / "x.sdr.mp4" → "x.*".
+// Photos: "x.photo.jpg" / "x.photo-story.jpg" (the prepared JPEGs) → "x.*".
+export const stem = (name) => name.replace(/\.(conformed|sdr)\.mp4$/, '').replace(/\.photo(-[\w]+)?\.jpg$/, '').replace(/\.[^.]+$/, '');
+// Every file in media/ a post depends on: its video, or its photos and the originals they came from.
+export const filesOf = (p) => [p.file, ...(p.imageFiles || []), ...(p.sources || [])].filter(Boolean);
 
 export function mediaReport(mediaDir, posts, now = Date.now()) {
   let files;
@@ -18,10 +21,10 @@ export function mediaReport(mediaDir, posts, now = Date.now()) {
   }
   const byStem = new Map(); // stem → statuses of posts using it
   for (const p of posts) {
-    if (!p.file) continue;
-    const s = stem(basename(p.file));
-    if (!byStem.has(s)) byStem.set(s, []);
-    byStem.get(s).push(p.status);
+    for (const s of new Set(filesOf(p).map((f) => stem(basename(f))))) {
+      if (!byStem.has(s)) byStem.set(s, []);
+      byStem.get(s).push(p.status);
+    }
   }
 
   const out = { totalBytes: 0, active: [], posted: [], unused: [] };
@@ -69,8 +72,8 @@ export function clearMedia(mediaDir, queue) {
   }
   const gone = new Set(report.posted.map((f) => stem(f.name)));
   for (const p of queue.posts) {
-    if (p.status === 'published' && p.file && gone.has(stem(basename(p.file))) && !p.fileCleared) {
-      queue.update(p, { fileCleared: true }, "Queue's copy of the video cleared to save space");
+    if (p.status === 'published' && !p.fileCleared && filesOf(p).some((f) => gone.has(stem(basename(f))))) {
+      queue.update(p, { fileCleared: true }, `Queue's copy of the ${p.file ? 'video' : 'photos'} cleared to save space`);
     }
   }
   return { count, bytes };

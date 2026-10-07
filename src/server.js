@@ -10,8 +10,9 @@ import { hasFfmpeg, probeAsync } from './probe.js';
 import { preflight } from './preflight.js';
 import { conformAsync } from './conform.js';
 import { hasCloudflared } from './fileshare.js';
-import { tick } from './worker.js';
-import { mediaReport, clearMedia } from './storage.js';
+import { tick, tokensOf } from './worker.js';
+import { mediaReport, clearMedia, stem as mediaStem, filesOf } from './storage.js';
+import { photoTypeOf, photoInfo, photoPreflight, preparePhoto, preparedName, isPreparedPhoto } from './photo.js';
 import { readdirSync, statSync } from 'node:fs';
 import { isLoaded as autostartOn } from './autostart.js';
 import { compare, download } from './quality.js';
@@ -88,6 +89,41 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       };
     } catch { return null; }
   };
+  // Photos: width/height of the prepared JPEG for the Library, cached like ffprobe results.
+  const photoCache = new Map();
+  const photoMetaOf = async (file) => {
+    try {
+      const st = statSync(file);
+      const key = `${file}|${st.size}|${st.mtimeMs}`;
+      if (!photoCache.has(key)) {
+        const i = await photoInfo(file);
+        if (photoCache.size > 500) photoCache.clear();
+        photoCache.set(key, { width: i.width, height: i.height, bytes: i.bytes, photo: true, plan: 'none' });
+      }
+      return photoCache.get(key);
+    } catch { return null; }
+  };
+  // An original photo upload in media/ (never one of the prepared copies), or null.
+  const safePhoto = (name) => { const f = safeMedia(name); return f && !isPreparedPhoto(basename(f)) && photoTypeOf(f) ? f : null; };
+  // The JPEGs Instagram gets for a post, made once each from the originals:
+  //   story → every frame 9:16 · one photo → its own best feed shape · carousel → every photo at
+  //   the FIRST photo's shape (Instagram shows them all at that shape anyway).
+  async function preparePostPhotos(kind, originals) {
+    const infos = [];
+    for (const f of originals) infos.push(await photoInfo(f));
+    const shape = kind === 'photos' && originals.length > 1 ? photoPreflight(infos[0]).aspect : null;
+    const out = [];
+    for (let i = 0; i < originals.length; i++) {
+      const own = photoPreflight(infos[i]).aspect;
+      const tag = kind === 'story' ? 'story' : shape && Math.abs(shape - own) > 0.005 ? `r${Math.round(shape * 1000)}` : null;
+      const dest = join(mediaDir, preparedName(basename(originals[i]), tag));
+      if (!existsSync(dest)) await preparePhoto(originals[i], dest, kind === 'story' ? { story: true } : tag ? { aspect: shape } : {});
+      out.push(dest);
+    }
+    return out;
+  }
+  // Never send temporary-link keys or server file paths of photos to the browser.
+  const pub = ({ shareToken: _a, shareTokens: _b, imageFiles: _c, ...p }) => p;
   let nextCheckAt = null;
 
   // Quality measurements (VMAF etc.), saved so the Quality Lab and post pages can show them.
@@ -413,7 +449,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         }
       }
 
-      // Photo carousels and stories: the demo shows the flow; the real scheduler can't post them yet.
+      // The demo's photo carousels and stories, from its sample photos (the real app uses /api/schedule).
       if (req.method === 'POST' && resource === 'demo' && id === 'post') {
         if (!demo) return send(res, 404, { error: 'not found' });
         const { kind, images = [], caption = '', at, platforms = ['instagram'] } = await readJson(req);
@@ -448,19 +484,35 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       if (req.method === 'GET' && resource === 'media' && id) {
         const name = basename(decodeURIComponent(id));
         const file = safeMedia(name);
-        if (!file || /\.(conformed|sdr)\.mp4$/.test(name)) return send(res, 404, { error: 'That video is no longer in the Library.' });
+        if (!file || /\.(conformed|sdr)\.mp4$/.test(name) || isPreparedPhoto(name)) return send(res, 404, { error: "That file is no longer in the Library." });
+        if (photoTypeOf(file)) {
+          try { const info = await photoInfo(file); return send(res, 200, { name, kind: 'photo', preview: preparedName(name), info, check: photoPreflight(info) }); }
+          catch (err) { return send(res, 400, { error: err.message }); }
+        }
         try { const { info, result } = await summarizeAsync(file); return send(res, 200, { name, info, result }); }
         catch { return send(res, 400, { error: "That file isn't a readable video." }); }
       }
 
       if (req.method === 'GET' && resource === 'media') {
-        const stem = (n) => n.replace(/\.(conformed|sdr)\.mp4$/, '').replace(/\.[^.]+$/, '');
+        const stem = mediaStem;
         const users = new Map();
-        for (const p of queue.posts) { if (!p.file) continue; const k = stem(p.source || basename(p.file)); if (!users.has(k)) users.set(k, []); users.get(k).push({ id: p.id, status: p.status, publishAt: p.publishAt, caption: p.caption }); }
-        let files = [];
-        try { files = readdirSync(mediaDir).filter((f) => !f.startsWith('.') && /\.(mp4|mov|m4v)$/i.test(f)); } catch {}
-        const base = files.flatMap((name) => { let st; try { st = statSync(join(mediaDir, name)); } catch { return []; } return [{ name, bytes: st.size, modified: st.mtime.toISOString(), fixedCopy: /\.(conformed|sdr)\.mp4$/.test(name), posts: users.get(stem(name)) || [] }]; });
-        const items = (await mapLimit(base, 4, async (it) => ({ ...it, meta: it.fixedCopy ? null : await metaOf(join(mediaDir, it.name)) })))
+        for (const p of queue.posts) {
+          for (const k of new Set(filesOf(p).map((f) => stem(basename(f))))) { if (!users.has(k)) users.set(k, []); users.get(k).push({ id: p.id, status: p.status, publishAt: p.publishAt, caption: p.caption, kind: p.kind }); }
+        }
+        let names = [];
+        try { names = readdirSync(mediaDir).filter((f) => !f.startsWith('.')); } catch {}
+        const base = names.flatMap((name) => {
+          let st; try { st = statSync(join(mediaDir, name)); } catch { return []; }
+          if (!st.isFile()) return [];
+          const video = /\.(mp4|mov|m4v)$/i.test(name);
+          // Photos are recognised by their bytes, like uploads. Prepared JPEGs are the "fixed copies".
+          const photo = !video && (isPreparedPhoto(name) || (() => { try { return !!photoTypeOf(join(mediaDir, name)); } catch { return false; } })());
+          if (!video && !photo) return [];
+          const fixedCopy = video ? /\.(conformed|sdr)\.mp4$/.test(name) : isPreparedPhoto(name);
+          const preview = photo && !fixedCopy ? preparedName(name) : null;
+          return [{ name, type: photo ? 'photo' : 'video', ...(preview ? { preview } : {}), bytes: st.size, modified: st.mtime.toISOString(), fixedCopy, posts: users.get(stem(name)) || [] }];
+        });
+        const items = (await mapLimit(base, 4, async (it) => ({ ...it, meta: it.fixedCopy ? null : it.type === 'photo' ? await photoMetaOf(fileIn(mediaDir, it.preview) || join(mediaDir, it.name)) : await metaOf(join(mediaDir, it.name)) })))
           .sort((a, b) => b.modified.localeCompare(a.modified));
         return send(res, 200, { items });
       }
@@ -515,21 +567,53 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       }
 
       if (req.method === 'POST' && resource === 'upload') {
-        const original = basename(url.searchParams.get('name') || 'video.mp4').replace(/[^\w.\- ]/g, '_');
+        const original = basename(url.searchParams.get('name') || 'video.mp4').replace(/[^\w.\- ]/g, '_')
+          .replace(/\.photo(-[\w]+)?(\.jpe?g)$/i, '_photo$1$2').replace(/\.(conformed|sdr)(\.mp4)$/i, '_$1$2'); // never look like one of Queue's own copies
         const name = `${Date.now()}-${original}`;
         const dest = join(mediaDir, name);
         await pipeline(req, createWriteStream(dest));
+        // A photo (JPEG / PNG / HEIC, recognised by its bytes, not its name): keep the original,
+        // and make the Instagram-ready JPEG straight away so the check and the preview are real.
+        if (photoTypeOf(dest)) {
+          const preview = preparedName(name);
+          try {
+            const { info, check } = await preparePhoto(dest, join(mediaDir, preview));
+            return send(res, 200, { name, kind: 'photo', preview, info, check, result: check });
+          } catch (err) {
+            for (const f of [dest, join(mediaDir, preview)]) try { unlinkSync(f); } catch {}
+            return send(res, 400, { error: /readable photo|px wide|HEIC/.test(err.message) ? err.message : "That photo couldn't be read." });
+          }
+        }
         try {
           const { info, result } = await summarizeAsync(dest);
+          if (!info.video?.width || !Number.isFinite(info.durationSec)) throw new Error('not a video');
           return send(res, 200, { name, info, result });
         } catch {
           unlinkSync(dest);
-          return send(res, 400, { error: "That file isn't a readable video." });
+          return send(res, 400, { error: "That file isn't a readable video or photo." });
         }
       }
 
       if (req.method === 'POST' && resource === 'schedule') {
-        const { name, at, caption = '', coverOffsetMs, platforms } = await readJson(req);
+        const { name, at, caption = '', coverOffsetMs, platforms, kind, images } = await readJson(req);
+        // Photos (one photo or a carousel) and stories. Instagram only, by temporary link.
+        if (kind === 'photos' || kind === 'story') {
+          const names = Array.isArray(images) ? images.map((n) => basename(String(n))) : [];
+          if (!names.length) return send(res, 400, { error: kind === 'story' ? 'Add at least one frame.' : 'Add at least one photo.' });
+          if (names.length > 10) return send(res, 400, { error: kind === 'story' ? 'A story can have up to 10 frames.' : 'Instagram takes up to 10 photos per carousel.' });
+          if (new Set(names).size !== names.length) return send(res, 400, { error: 'The same photo is in there twice.' });
+          const originals = names.map(safePhoto);
+          if (originals.some((f) => !f)) return send(res, 400, { error: 'Upload the photos first.' });
+          const when = validTime(at);
+          if (typeof caption !== 'string' || caption.length > 2200) return send(res, 400, { error: 'Caption is over 2,200 characters.' });
+          if (!ig.dryRun && !demo) {
+            if (hosted && !files?.publicBaseUrl) return send(res, 400, { error: 'Hosted mode needs a public address (RAILWAY_PUBLIC_DOMAIN or PUBLIC_BASE_URL) so Instagram can fetch the photos.' });
+            if (!files || (!hosted && !files.publicBaseUrl && !hasCloudflared())) return send(res, 400, { error: "Photos go to Instagram by temporary link, and cloudflared isn't installed. Run: brew install cloudflared" });
+          }
+          const prepared = await preparePostPhotos(kind, originals);
+          const post = queue.add({ file: null, caption: kind === 'story' ? '' : caption, publishAt: when, kind, images: prepared.map((f) => basename(f)), imageFiles: prepared, sources: names, platforms: ['instagram'], destinations: demo ? [{ platform: 'instagram', format: kind === 'story' ? 'Story' : names.length > 1 ? 'Carousel' : 'Photo', status: 'queued' }] : null });
+          return send(res, 200, { post: pub(post) });
+        }
         const file = safeMedia(name);
         if (!file) return send(res, 400, { error: 'Upload the video first.' });
         const when = validTime(at);
@@ -545,14 +629,14 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         const FORMAT = { instagram: 'Reel', youtubeshorts: 'Short', tiktok: 'Video', facebook: 'Reel', linkedin: 'Video' };
         const dests = demo && Array.isArray(platforms) && platforms.length ? platforms.filter((p) => FORMAT[p]) : ['instagram'];
         const post = queue.add({ file: ready, caption, publishAt: when, coverOffsetMs: cover, fix: result.plan, source: basename(file), platforms: dests, destinations: demo ? dests.map((p) => ({ platform: p, format: FORMAT[p], status: 'queued' })) : null });
-        return send(res, 200, { post: { ...post, shareToken: undefined }, fixed: result.plan });
+        return send(res, 200, { post: pub(post), fixed: result.plan });
       }
 
       if (resource === 'queue') {
         if (req.method === 'GET' && !id) {
           const sorted = [...queue.posts].sort((a, b) => a.publishAt.localeCompare(b.publishAt));
           // shareToken is a live public link key — it never leaves the server.
-          const posts = await mapLimit(sorted, 4, async ({ log: _log, shareToken: _t, ...p }) => ({ ...p, media: p.file ? basename(p.file) : null, meta: await metaOf(p.file), lastLog: _log?.at(-1)?.msg || null }));
+          const posts = await mapLimit(sorted, 4, async ({ log: _log, shareToken: _t, shareTokens: _ts, imageFiles: _f, ...p }) => ({ ...p, media: p.file ? basename(p.file) : null, meta: await metaOf(p.file), lastLog: _log?.at(-1)?.msg || null }));
           return send(res, 200, { posts });
         }
         if (req.method === 'PATCH' && id) {
@@ -563,9 +647,10 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
           if (at !== undefined) patch.publishAt = validTime(at);
           if (coverOffsetMs !== undefined) patch.coverOffsetMs = validCover(coverOffsetMs);
           const existing = queue.get(id);
+          const oldTokens = existing ? tokensOf(existing) : []; // read now: edit() clears them in place
           const post = queue.edit(id, patch);
-          if (post && existing?.shareToken && files) await files.unshare(existing.shareToken);
-          return post ? send(res, 200, { post: { ...post, shareToken: undefined } }) : send(res, 404, { error: 'No post with that id.' });
+          if (post && files) for (const t of oldTokens) await files.unshare(t);
+          return post ? send(res, 200, { post: pub(post) }) : send(res, 404, { error: 'No post with that id.' });
         }
         if (req.method === 'GET' && id && action === 'log') {
           const post = queue.get(id);
@@ -573,18 +658,19 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         }
         if (req.method === 'POST' && id && action === 'post-now') {
           const post = queue.postNow(id);
-          return post ? send(res, 200, { post: { ...post, shareToken: undefined } }) : send(res, 400, { error: 'Only missed posts can be posted now.' });
+          return post ? send(res, 200, { post: pub(post) }) : send(res, 400, { error: 'Only missed posts can be posted now.' });
         }
         if (req.method === 'POST' && id && action === 'retry') {
           const before = queue.get(id);
+          const oldTokens = before ? tokensOf(before) : []; // read now: retry() clears them in place
           const post = queue.retry(id);
-          if (post && before?.shareToken && files) await files.unshare(before.shareToken);
-          return post ? send(res, 200, { post: { ...post, shareToken: undefined } }) : send(res, 400, { error: 'Only failed posts can be retried.' });
+          if (post && files) for (const t of oldTokens) await files.unshare(t);
+          return post ? send(res, 200, { post: pub(post) }) : send(res, 400, { error: 'Only failed posts can be retried.' });
         }
         if (req.method === 'DELETE' && id) {
           const post = queue.get(id);
           if (post?.status === 'published') return send(res, 400, { error: "Already posted. Delete it in Instagram." });
-          if (post?.shareToken && files) await files.unshare(post.shareToken);
+          if (post && files) for (const t of tokensOf(post)) await files.unshare(t);
           const ok = queue.remove(id);
           return send(res, ok ? 200 : 404, { ok });
         }

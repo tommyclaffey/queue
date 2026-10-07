@@ -4,6 +4,8 @@
 //   reencode   → one high-quality pass: 1080 wide, H.264 High, CRF 17, closed GOP.
 //   hdr        → HDR (iPhone HLG/Dolby Vision) → standard colour using Apple's own converter
 //                (the same one Photos uses to share HDR), then the normal fix for the result.
+//                No avconvert (Linux, the hosted server): ffmpeg tone-maps (zscale + hable) and
+//                does the normal 1080-wide encode in the SAME pass — still one encode.
 // Every extra encode is a generation of quality loss, so we do at most one — except HDR,
 // where Apple's conversion is a very high-bitrate first pass (~25 Mbps at 4K).
 import { execFile, execFileSync } from 'node:child_process';
@@ -15,7 +17,7 @@ import { preflight } from './preflight.js';
 
 const execFileP = promisify(execFile);
 
-export function conformArgs(info, plan, spec, out) {
+export function conformArgs(info, plan, spec, out, { preFilter = null } = {}) {
   const base = ['-y', '-hide_banner', '-loglevel', 'error', '-i', info.file];
   const audioFix = ['-c:a', 'aac', '-b:a', '256k', '-ar', '48000', '-ac', '2'];
   const tail = ['-movflags', '+faststart', '-map_metadata', '-1', out];
@@ -33,13 +35,32 @@ export function conformArgs(info, plan, spec, out) {
 
   return [
     ...base,
-    '-vf', `${scale},fps=${fps},format=yuv420p`,
+    '-vf', `${preFilter ? preFilter + ',' : ''}${scale},fps=${fps},format=yuv420p`,
     '-c:v', 'libx264', '-profile:v', 'high', '-preset', 'slow', '-crf', '17',
     '-maxrate', '20M', '-bufsize', '40M',
     '-g', String(Math.round(fps * 2)), '-flags', '+cgop', // closed GOP, per Meta spec
     ...(info.audio ? audioFix : []),
+    ...(preFilter ? ['-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709'] : []),
     ...tail,
   ];
+}
+
+// HDR → SDR with ffmpeg: linearise, map BT.2020 → BT.709, tone-map (hable), back to BT.709 video.
+export const TONEMAP = 'zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p';
+let zscaleCache = null;
+export function hasZscale() {
+  if (zscaleCache === null) {
+    try { zscaleCache = /^\s*\S+\s+zscale\s/m.test(execFileSync('ffmpeg', ['-hide_banner', '-filters'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString()); }
+    catch { zscaleCache = false; }
+  }
+  return zscaleCache;
+}
+const NO_HDR = 'HDR video needs converting to standard colour. Export SDR from your editor, or run this on a Mac.';
+// Which HDR route this machine has. Options exist so tests can force the non-Apple path.
+function hdrRoute({ avconvert = hasAvconvert(), zscale = null } = {}) {
+  if (avconvert) return 'avconvert';
+  if (zscale ?? hasZscale()) return 'ffmpeg';
+  throw new Error(NO_HDR);
 }
 
 export function hasAvconvert() {
@@ -59,10 +80,14 @@ function afterHdr(sdrFile, spec, runFix) {
   return final;
 }
 
-export function conform(info, plan, spec) {
+export function conform(info, plan, spec, opts = {}) {
   if (plan === 'none') return info.file;
   if (plan === 'hdr') {
-    if (!hasAvconvert()) throw new Error('HDR video needs converting to standard colour. Export SDR from your editor, or run this on a Mac.');
+    if (hdrRoute(opts) === 'ffmpeg') {
+      const out = outPath(info.file, 'conformed');
+      execFileSync('ffmpeg', conformArgs(info, 'reencode', spec, out, { preFilter: TONEMAP }), { stdio: 'inherit' });
+      return out;
+    }
     const sdr = outPath(info.file, 'sdr');
     execFileSync('/usr/bin/avconvert', sdrArgs(info.file, sdr), { stdio: 'ignore' });
     return afterHdr(sdr, spec, (i, p) => conform(i, p, spec));
@@ -73,10 +98,14 @@ export function conform(info, plan, spec) {
 }
 
 // Non-blocking version for the web server, so a long re-encode doesn't freeze the UI.
-export async function conformAsync(info, plan, spec) {
+export async function conformAsync(info, plan, spec, opts = {}) {
   if (plan === 'none') return info.file;
   if (plan === 'hdr') {
-    if (!hasAvconvert()) throw new Error('HDR video needs converting to standard colour. Export SDR from your editor, or run this on a Mac.');
+    if (hdrRoute(opts) === 'ffmpeg') {
+      const out = outPath(info.file, 'conformed');
+      await execFileP('ffmpeg', conformArgs(info, 'reencode', spec, out, { preFilter: TONEMAP }), { maxBuffer: 1 << 24 });
+      return out;
+    }
     const sdr = outPath(info.file, 'sdr');
     await execFileP('/usr/bin/avconvert', sdrArgs(info.file, sdr));
     const sdrInfo = probe(sdr);

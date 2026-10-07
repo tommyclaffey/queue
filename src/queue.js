@@ -43,7 +43,7 @@ export class Queue {
     this.#mtime = mine;
   }
 
-  add({ file, caption = '', publishAt, coverOffsetMs = null, platform = 'instagram_reels', fix = null, source = null, kind = 'reel', images = null, platforms = ['instagram'], destinations = null }) {
+  add({ file, caption = '', publishAt, coverOffsetMs = null, platform = 'instagram_reels', fix = null, source = null, kind = 'reel', images = null, imageFiles = null, sources = null, platforms = ['instagram'], destinations = null }) {
     this.#load();
     const post = {
       id: randomUUID().slice(0, 8),
@@ -53,9 +53,11 @@ export class Queue {
       coverOffsetMs,
       fix, // which fix Queue applied: none | remux | audio-only | reencode | hdr
       source, // the original upload in media/ this copy was made from
-      kind, // reel | photos | story (photos and stories exist in the demo only, so far)
+      kind, // reel | photos (1 photo, or a 2–10 photo carousel) | story (1–10 frames)
       platforms,
-      ...(images ? { images } : {}),
+      ...(images ? { images } : {}), // photo names shown in the app (media/, or demo assets)
+      ...(imageFiles ? { imageFiles } : {}), // the prepared JPEGs Instagram gets, in order
+      ...(sources ? { sources } : {}), // the original uploads those were made from
       ...(destinations ? { destinations } : {}),
       publishAt: new Date(publishAt).toISOString(),
       status: 'queued',
@@ -84,13 +86,14 @@ export class Queue {
 
   // Caption and cover are baked into the uploaded container, so editing a staged
   // post sends it back to 'queued' and it gets re-uploaded.
+  // Story frames that already went live (frames[i].published) are kept: they are never posted again.
   edit(id, { caption, publishAt, coverOffsetMs }) {
     const post = this.get(id);
     if (!post) return null;
     if (!['queued', 'staged', 'ready', 'failed', 'missed'].includes(post.status)) throw new Error('Already published.');
     // rev lets the scheduler notice "this post changed while I was uploading it" and discard that upload.
     const patch = {
-      status: 'queued', containerId: null, shareToken: null, attempts: 0, stuckCount: 0, stageRetried: false,
+      status: 'queued', containerId: null, children: null, shareToken: null, shareTokens: null, attempts: 0, stuckCount: 0, stageRetried: false,
       error: null, lateWarned: false, allowLate: false, rev: (post.rev || 0) + 1,
       prevContainerId: post.containerId || post.prevContainerId || null, // checked before re-uploading
     };
@@ -104,7 +107,7 @@ export class Queue {
     const post = this.get(id);
     if (!post || post.status !== 'failed') return null;
     return this.update(post, {
-      status: 'queued', containerId: null, shareToken: null, attempts: 0, stuckCount: 0, stageRetried: false,
+      status: 'queued', containerId: null, children: null, shareToken: null, shareTokens: null, attempts: 0, stuckCount: 0, stageRetried: false,
       error: null, lateWarned: false, rev: (post.rev || 0) + 1,
       prevContainerId: post.containerId || post.prevContainerId || null, // checked before re-uploading
     }, 'retry requested');
@@ -116,7 +119,8 @@ export class Queue {
     const post = this.get(id);
     if (!post || post.status !== 'missed') return null;
     const patch = { allowLate: true, error: null, attempts: 0, rev: (post.rev || 0) + 1 };
-    if (post.containerId) patch.status = 'ready';
+    const staged = post.containerId || (post.kind === 'story' && post.frames?.some((f) => f.id && !f.published));
+    if (staged) patch.status = 'ready';
     else Object.assign(patch, { status: 'queued', stageRetried: false, stuckCount: 0 });
     return this.update(post, patch, 'post now requested');
   }

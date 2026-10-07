@@ -228,8 +228,10 @@ function accountState(id) {
 }
 const comparisonsFor = (postId) => S.quality.filter((q) => q.postId === postId);
 const vmafOf = (p, platform = 'instagram') => S.quality.find((q) => q.postId === p.id && q.platform === platform && q.route === 'queue')?.result.vmaf ?? null;
-const postTitle = (p) => p.caption || (p.images?.length ? (p.kind === 'story' ? `Story · ${p.images.length} frames` : `Carousel · ${p.images.length} photos`) : '(no caption)');
-const imgUrl = (n) => `/demo-assets/${encodeURIComponent(n)}`;
+const photoLabel = (p) => (p.kind === 'story' ? `Story · ${p.images.length} frame${p.images.length === 1 ? '' : 's'}` : p.images.length === 1 ? 'Photo' : `Carousel · ${p.images.length} photos`);
+const postTitle = (p) => p.caption || (p.images?.length ? photoLabel(p) : '(no caption)');
+// Photos: the demo's sample photos, or (real app) the prepared JPEGs in media/.
+const imgUrl = (n) => (isDemo() ? `/demo-assets/${encodeURIComponent(n)}` : `/media/${encodeURIComponent(n)}`);
 function thumb(p, cls = 'thumb') {
   if (p.images?.length) return el('img', { class: cls, src: imgUrl(p.images[0]), alt: '' });
   const v = el('video', { class: cls, muted: true, playsInline: true, preload: 'metadata', src: p.media ? `/media/${encodeURIComponent(p.media)}#t=0.8` : '' });
@@ -416,7 +418,7 @@ let queueSearch = '';
 const queueSel = new Set();
 const selectable = (p) => statusOf(p) !== 'posted';
 function postMeta(p) {
-  if (p.images?.length) return p.kind === 'story' ? `Story · ${p.images.length} frame${p.images.length === 1 ? '' : 's'}` : `Carousel · ${p.images.length} photos`;
+  if (p.images?.length) return photoLabel(p);
   const m = p.meta; const bits = [];
   if (m) bits.push(fmtDur(m.durationSec), `${m.width}×${m.height}`);
   if (p.fix) bits.push(FIX_TEXT[p.fix] || p.fix);
@@ -693,7 +695,7 @@ VIEWS.calendar = async (c) => {
   c.append(el('div', { class: 'cal-layout' }, main, side));
   try {
     const { items } = await api('/api/media');
-    const free = items.filter((i) => !i.fixedCopy && !i.posts.length);
+    const free = items.filter((i) => !i.fixedCopy && i.type !== 'photo' && !i.posts.length);
     unsched.querySelector('.faint').textContent = String(free.length);
     if (!free.length) unsched.append(el('div', { class: 'small muted' }, 'Every video in your Library is scheduled. New uploads you don\'t schedule land here.'));
     for (const it of free.slice(0, 8)) {
@@ -730,15 +732,16 @@ VIEWS.library = async (c) => {
   const [{ items }, sum] = await Promise.all([api('/api/media'), api('/api/storage')]);
   const originals = items.filter((i) => !i.fixedCopy).map((it) => ({ ...it, st: libState(it) }));
   const sortSel = el('select', { class: 'input select-sm', 'aria-label': 'Sort', on: { change: (e) => { libSort = e.target.value; draw(); } } }, ...[['newest', 'Newest'], ['oldest', 'Oldest'], ['largest', 'Largest'], ['name', 'Name']].map(([v, l]) => el('option', { value: v, selected: libSort === v }, l)));
-  topbar('Library', `${originals.length} video${originals.length === 1 ? '' : 's'}`, [searchBox(libSearch, (v) => { libSearch = v; draw(); }, 'Search videos…'), sortSel, btn('Upload', 'primary', () => (location.hash = '#/new'))]);
+  const nPhotos = originals.filter((i) => i.type === 'photo').length; const nVideos = originals.length - nPhotos;
+  topbar('Library', [`${nVideos} video${nVideos === 1 ? '' : 's'}`, nPhotos ? `${nPhotos} photo${nPhotos === 1 ? '' : 's'}` : null].filter(Boolean).join(' · '), [searchBox(libSearch, (v) => { libSearch = v; draw(); }, 'Search your Library…'), sortSel, btn('Upload', 'primary', () => (location.hash = '#/new'))]);
   const total = sum.totalBytes || 1;
   const waiting = total - sum.clearable.bytes;
   c.append(el('div', { class: 'card row', style: 'gap:28px;align-items:center' },
-    el('div', { style: 'flex:1' }, el('h2', { class: 'h3' }, `Queue's video copies: ${fmtBytes(sum.totalBytes)}`),
+    el('div', { style: 'flex:1' }, el('h2', { class: 'h3' }, `Queue's copies: ${fmtBytes(sum.totalBytes)}`),
       el('div', { class: 'split-bar', style: 'margin:10px 0' }, el('span', { style: `flex:${Math.max(waiting, 1)};background:var(--brand)` }), el('span', { style: `flex:${Math.max(sum.posted.bytes, 0.001)};background:var(--surface-3)` }), el('span', { style: `flex:${Math.max(sum.unused.bytes, 0.001)};background:var(--border-default)` })),
       el('div', { class: 'row small muted', style: 'gap:18px' }, el('span', {}, `■ Waiting to post · ${fmtBytes(waiting)}`), el('span', {}, `■ Already posted · ${fmtBytes(sum.posted.bytes)}`), el('span', {}, `□ Never scheduled · ${fmtBytes(sum.unused.bytes)}`))),
     el('div', { class: 'stack', style: 'gap:6px;align-items:flex-end' }, btn(sum.clearable.count ? `Clear ${fmtBytes(sum.clearable.bytes)}…` : 'Nothing to clear', 'secondary', () => clearStorage(sum), { disabled: !sum.clearable.count }), el('div', { class: 'small faint' }, 'Never touches your originals or anything waiting to post.'))));
-  if (!originals.length) { c.append(el('div', { class: 'card empty', style: 'margin-top:16px' }, el('div', { class: 'h3' }, 'No videos yet'), el('div', {}, 'Videos you upload show up here.'), el('div', { style: 'margin-top:14px' }, btn('Upload a video', 'primary', () => (location.hash = '#/new'))))); return; }
+  if (!originals.length) { c.append(el('div', { class: 'card empty', style: 'margin-top:16px' }, el('div', { class: 'h3' }, 'Nothing here yet'), el('div', {}, 'Videos and photos you upload show up here.'), el('div', { style: 'margin-top:14px' }, btn('Upload a video', 'primary', () => (location.hash = '#/new'))))); return; }
   const FILTERS = [['all', 'All', () => true], ['ready', 'Ready', (i) => i.st.key === 'ready'], ['fix', 'Needs a fix', (i) => i.st.key === 'fix'], ['scheduled', 'Scheduled', (i) => i.st.key === 'scheduled'], ['posted', 'Posted', (i) => i.st.key === 'posted'], ['unused', 'Unused', (i) => !i.posts.length]];
   const chips = el('div', { class: 'filters' });
   const grid = el('div', { class: 'media-grid' });
@@ -748,17 +751,18 @@ VIEWS.library = async (c) => {
     const q = libSearch.trim().toLowerCase();
     const sorters = { newest: (a, b) => b.modified.localeCompare(a.modified), oldest: (a, b) => a.modified.localeCompare(b.modified), largest: (a, b) => b.bytes - a.bytes, name: (a, b) => shortName(a.name).localeCompare(shortName(b.name)) };
     const list = originals.filter(FILTERS.find(([k]) => k === libFilter)[2]).filter((i) => !q || shortName(i.name).toLowerCase().includes(q) || i.posts.some((p) => (p.caption || '').toLowerCase().includes(q))).sort(sorters[libSort]);
-    if (!list.length) { grid.replaceChildren(el('div', { class: 'card empty', style: 'grid-column:1/-1' }, el('div', { class: 'h3' }, 'Nothing here'), el('div', {}, q ? `No videos match "${libSearch.trim()}".` : 'No videos in this group.'))); return; }
+    if (!list.length) { grid.replaceChildren(el('div', { class: 'card empty', style: 'grid-column:1/-1' }, el('div', { class: 'h3' }, 'Nothing here'), el('div', {}, q ? `Nothing matches "${libSearch.trim()}".` : 'Nothing in this group.'))); return; }
     grid.replaceChildren(...list.map((it) => {
-      const v = el('video', { muted: true, playsInline: true, preload: 'metadata', src: `/media/${encodeURIComponent(it.name)}#t=0.8` });
+      const photo = it.type === 'photo';
+      const v = photo ? el('img', { src: `/media/${encodeURIComponent(it.preview || it.name)}`, alt: '', loading: 'lazy' }) : el('video', { muted: true, playsInline: true, preload: 'metadata', src: `/media/${encodeURIComponent(it.name)}#t=0.8` });
       const m = it.meta; const st = it.st;
       const post = st.post && S.posts.find((p) => p.id === st.post.id);
       const act = !it.posts.length ? () => openInComposer(it.name) : post ? () => openPost(post) : null;
       const hover = !it.posts.length ? el('span', { class: 'hover-cta' }, 'Schedule') : null;
       return el('div', { class: 'media-card' + (act ? ' clickable' : ''), role: act ? 'button' : null, tabindex: act ? 0 : null, on: act ? { click: act, keydown: (e) => { if (e.key === 'Enter') act(); } } : null },
-        el('div', { class: 'frame' }, v, m ? el('span', { class: 'dur' }, fmtDur(m.durationSec)) : null, hover),
+        el('div', { class: 'frame' }, v, photo ? el('span', { class: 'dur' }, 'Photo') : m ? el('span', { class: 'dur' }, fmtDur(m.durationSec)) : null, hover),
         el('b', { title: shortName(it.name) }, shortName(it.name)),
-        el('div', { class: 'small faint' }, [resLabel(m), fmtBytes(it.bytes)].filter(Boolean).join(' · ')),
+        el('div', { class: 'small faint' }, [photo ? (m ? `${m.width}×${m.height} JPEG` : null) : resLabel(m), fmtBytes(it.bytes)].filter(Boolean).join(' · ')),
         el('div', { class: 'small', style: `color:var(--${st.color})` }, st.text));
     }));
   }
@@ -1057,12 +1061,13 @@ async function openInComposer(name, date, time) {
   try {
     const up = await api(`/api/media/${encodeURIComponent(name)}`);
     resetComposer();
-    C.upload = up;
+    if (up.kind === 'photo') { C.format = 'photos'; C.photos = [name]; C.photoInfo = { [name]: up }; } // photos open in the Photos composer
+    else C.upload = up;
     if (date) { C.date = date; C.time = time || usualDefault(); }
     if (location.hash === '#/new') render(); else location.hash = '#/new';
   } catch (e) { toast(e.message, true); }
 }
-function resetComposer() { Object.assign(C, { upload: null, caption: '', date: '', time: '', coverMs: null, platform: 'instagram', format: 'video', dests: null, capTab: 'all', captions: {}, photos: [], crop: 'per', frames: [], remind: false }); }
+function resetComposer() { Object.assign(C, { upload: null, caption: '', date: '', time: '', coverMs: null, platform: 'instagram', format: 'video', dests: null, capTab: 'all', captions: {}, photos: [], crop: 'per', frames: [], remind: false, photoInfo: {}, uploading: 0 }); }
 
 // ---------------------------------------------------------------- boot
 let dragging = false;

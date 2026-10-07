@@ -54,7 +54,7 @@ VIEWS.post = async (c, id) => {
 
   // ---- middle: destinations + what happened
   const dests = el('div', { class: 'card flush' }, el('div', { class: 'row', style: 'padding:16px 18px 6px' }, el('h2', { class: 'h3' }, 'Destinations')));
-  for (const d of (isDemo() && p.destinations?.length ? p.destinations : [{ platform: 'instagram', format: 'Reel', status: s === 'posted' ? 'posted' : p.status }])) {
+  for (const d of (isDemo() && p.destinations?.length ? p.destinations : [{ platform: 'instagram', format: p.kind === 'story' ? 'Story' : p.images?.length > 1 ? 'Carousel' : p.images?.length ? 'Photo' : 'Reel', status: s === 'posted' ? 'posted' : p.status }])) {
     const [txt, cls] = d.status === s ? [`${GLYPH[s]} ${STATUS[s]}`, s] : DEST[d.status] || DEST.queued;
     const v = d.vmaf ?? vmafOf(p, d.platform);
     const when = d.status === 'posted' || d.status === 'published' ? `posted ${fmtTime(new Date(p.publishedAt || p.publishAt))}` : d.status === 'drafts' ? 'sent to drafts' : fmtWhen(p.publishAt);
@@ -106,12 +106,12 @@ async function measurePost(p, button) {
   catch (e) { toast(e.message, true); if (button) { button.disabled = false; button.textContent = label; } }
 }
 // Simple image carousel: click left/right half to move.
-function carousel(images, cls) {
+function carousel(images, cls, src = imgUrl) {
   let i = 0;
-  const img = el('img', { class: cls, src: imgUrl(images[0]), alt: '' });
+  const img = el('img', { class: cls, src: src(images[0]), alt: '' });
   const count = el('span', { class: 'cnt' }, `1/${images.length}`);
   const dots = el('div', { class: 'dots' }, ...images.map((_, k) => el('i', { class: k === 0 ? 'on' : '' })));
-  const go = (d) => { i = (i + d + images.length) % images.length; img.src = imgUrl(images[i]); count.textContent = `${i + 1}/${images.length}`; [...dots.children].forEach((n, k) => n.classList.toggle('on', k === i)); };
+  const go = (d) => { i = (i + d + images.length) % images.length; img.src = src(images[i]); count.textContent = `${i + 1}/${images.length}`; [...dots.children].forEach((n, k) => n.classList.toggle('on', k === i)); };
   const wrap = el('div', { class: 'carousel', on: { click: (e) => go(e.offsetX < e.currentTarget.clientWidth / 2 ? -1 : 1) } }, img, images.length > 1 ? count : null, images.length > 1 ? dots : null);
   return wrap;
 }
@@ -346,8 +346,8 @@ VIEWS.setup = async (c) => {
 };
 
 // ================================================================ NEW POST (composer)
-// Video is real everywhere. In the demo, posts can also go to several platforms, and the
-// Photos and Story formats can be tried (the real scheduler only posts Reels so far).
+// Video, Photos (one photo or a carousel) and Story are real everywhere, Instagram only. The demo
+// can also send them to several platforms, using its sample photos.
 Object.assign(C, { format: 'video', dests: null, capTab: 'all', captions: {}, photos: [], crop: 'per', frames: [], remind: false });
 const VIDEO_DESTS = ['instagram', 'youtubeshorts', 'tiktok', 'facebook', 'linkedin', 'threads', 'x'];
 const FORMAT_OF = { instagram: 'Reel', youtubeshorts: 'Short', tiktok: 'Video', facebook: 'Reel', linkedin: 'Video', threads: 'Video', x: 'Video' };
@@ -362,7 +362,7 @@ function deliveryOf(p) {
 const canUse = (p) => ['connected', 'drafts', 'dryrun'].includes(accountState(p));
 function ensureDests() { if (!C.dests) C.dests = new Set(isDemo() ? VIDEO_DESTS.filter(canUse) : ['instagram']); }
 const fmtSeg = () => el('div', { class: 'seg' }, ...[['video', 'Video'], ['photos', 'Photos'], ['story', 'Story'], ['text', 'Text']].map(([k, l]) => {
-  const ok = k === 'video' || (isDemo() && k !== 'text');
+  const ok = k !== 'text';
   return el('button', { class: C.format === k ? 'on' : '', disabled: !ok, title: ok ? '' : 'Coming soon', on: { click: () => { C.format = k; C.dests = null; render(); } } }, l);
 }));
 const cancelBtn = () => btn('Cancel', 'ghost', () => { resetComposer(); location.hash = '#/dashboard'; });
@@ -376,8 +376,8 @@ const dateTimeCard = (note) => {
 const toggleBtn = (on, onClick, disabled) => el('button', { class: 'toggle' + (on ? ' on' : ''), disabled: !!disabled, 'aria-pressed': String(on), on: onClick ? { click: onClick } : null });
 
 VIEWS.new = (c) => {
-  if (C.format === 'photos' && isDemo()) return photosComposer(c);
-  if (C.format === 'story' && isDemo()) return storyComposer(c);
+  if (C.format === 'photos') return isDemo() ? photosComposer(c) : realPhotosComposer(c);
+  if (C.format === 'story') return isDemo() ? storyComposer(c) : realStoryComposer(c);
   C.format = 'video';
   if (!C.upload) return uploadStep(c);
   return videoComposer(c);
@@ -385,7 +385,7 @@ VIEWS.new = (c) => {
 
 // ---------------------------------------------------------------- step 1: choose
 function uploadStep(c) {
-  topbar('New post', 'Step 1 of 2 · Choose what to post', [isDemo() ? fmtSeg() : null, cancelBtn()].filter(Boolean));
+  topbar('New post', 'Step 1 of 2 · Choose what to post', [fmtSeg(), cancelBtn()]);
   const input = el('input', { type: 'file', accept: 'video/*', class: 'hidden', on: { change: (e) => e.target.files[0] && doUpload(e.target.files[0]) } });
   const status = el('div', { class: 'muted' }, 'MP4 or MOV · 3 s – 15 min · up to 300 MB · 9:16 looks best');
   const dz = el('div', { class: 'dropzone', role: 'button', tabindex: 0, on: { click: () => input.click(), keydown: (e) => { if (e.key === 'Enter') input.click(); } } },
@@ -403,7 +403,7 @@ function uploadStep(c) {
   const recent = el('div');
   c.append(dz, how, recent);
   api('/api/media').then(({ items }) => {
-    const list = items.filter((i) => !i.fixedCopy).slice(0, 8);
+    const list = items.filter((i) => !i.fixedCopy && i.type !== 'photo').slice(0, 8);
     if (!list.length) return;
     recent.replaceChildren(el('div', { class: 'card stack', style: 'gap:14px;margin-top:16px' }, el('div', { class: 'row' }, el('h2', { class: 'h3', style: 'flex:1' }, 'Recent uploads'), el('a', { class: 'link small', href: '#/library' }, 'Open Library →')),
       el('div', { class: 'pick-row' }, ...list.map((it) => { const st = libState(it); return el('button', { class: 'pick', type: 'button', title: shortName(it.name), on: { click: () => openInComposer(it.name) } }, el('video', { muted: true, playsInline: true, preload: 'metadata', src: `/media/${encodeURIComponent(it.name)}#t=0.8` }), el('span', { class: 'small' }, shortName(it.name)), el('span', { class: 'small', style: `color:var(--${st.key === 'fix' ? 'warning' : 'text-tertiary'})` }, st.key === 'ready' ? 'Checked ✓' : st.key === 'fix' ? 'Needs a fix' : st.key === 'posted' ? 'Posted' : 'Scheduled')); }))));
@@ -422,7 +422,7 @@ function libraryPicker() {
     m.append(grid);
     try {
       const { items } = await api('/api/media');
-      const list = items.filter((i) => !i.fixedCopy);
+      const list = items.filter((i) => !i.fixedCopy && i.type !== 'photo');
       grid.replaceChildren(...(list.length ? list.map((it) => el('button', { class: 'pick', type: 'button', on: { click: () => { close(); openInComposer(it.name); } } }, el('video', { muted: true, playsInline: true, preload: 'metadata', src: `/media/${encodeURIComponent(it.name)}#t=0.8` }), el('span', { class: 'small' }, shortName(it.name)), el('span', { class: 'small faint' }, it.meta ? `${resLabel(it.meta)} · ${fmtDur(it.meta.durationSec)}` : fmtBytes(it.bytes)))) : [el('div', { class: 'small muted' }, 'Your Library is empty. Upload a video first.')]));
     } catch (e) { grid.replaceChildren(el('div', { class: 'small muted' }, e.message)); }
   });
@@ -437,7 +437,7 @@ function videoComposer(c) {
   const multi = isDemo();
   const label = multi ? `Schedule to ${on.length} platform${on.length === 1 ? '' : 's'}` : 'Schedule Reel';
   const schedBtn = btn(label, 'primary', scheduleVideo, { disabled: up.result.needsTrim || !on.length });
-  topbar('New post', el('span', { class: 'mono small' }, `${shortName(up.name)} · ${fmtDur(up.info.durationSec)} · ${v.width}×${v.height}${hdr ? ' · HDR' : ''}`), [multi ? fmtSeg() : null, cancelBtn(), schedBtn].filter(Boolean));
+  topbar('New post', el('span', { class: 'mono small' }, `${shortName(up.name)} · ${fmtDur(up.info.durationSec)} · ${v.width}×${v.height}${hdr ? ' · HDR' : ''}`), [fmtSeg(), cancelBtn(), schedBtn]);
 
   const grid = el('div', { class: 'composer' });
   // preview column
@@ -571,16 +571,20 @@ function photoPicker(target, max) {
       el('div', { class: 'foot' }, btn('Cancel', 'ghost', close), btn('Use photos', 'primary', () => { target.splice(0, target.length, ...chosen); close(); render(); })));
   });
 }
-function stripTiles(list, labelFor, onAdd) {
+// Demo: the sample photos. Real app: the Instagram-ready JPEG Queue made from each upload.
+const previewOf = (n) => n.replace(/\.[^.]+$/, '') + '.photo.jpg';
+const photoSrc = (n) => (isDemo() ? imgUrl(n) : `/media/${encodeURIComponent(previewOf(n))}`);
+function stripTiles(list, labelFor, onAdd, busy = 0) {
   const strip = el('div', { class: 'strip' });
   list.forEach((n, i) => {
-    const tile = el('div', { class: 'tile', draggable: 'true' }, el('img', { src: imgUrl(n), alt: '' }), el('span', { class: 'num' }, labelFor(i)), el('button', { class: 'x', type: 'button', 'aria-label': 'Remove', on: { click: () => { list.splice(i, 1); render(); } } }, '×'));
+    const tile = el('div', { class: 'tile', draggable: 'true' }, el('img', { src: photoSrc(n), alt: '' }), el('span', { class: 'num' }, labelFor(i)), el('button', { class: 'x', type: 'button', 'aria-label': 'Remove', on: { click: () => { list.splice(i, 1); render(); } } }, '×'));
     tile.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/x-queue-tile', String(i)));
     tile.addEventListener('dragover', (e) => e.preventDefault());
     tile.addEventListener('drop', (e) => { e.preventDefault(); const raw = e.dataTransfer.getData('text/x-queue-tile'); if (raw === '') return; const from = Number(raw); if (Number.isNaN(from) || from === i) return; const [x] = list.splice(from, 1); list.splice(i, 0, x); render(); });
     strip.append(tile);
   });
-  strip.append(el('button', { class: 'tile add', type: 'button', on: { click: onAdd } }, '+'));
+  for (let k = 0; k < busy; k++) strip.append(el('div', { class: 'tile busy', 'aria-label': 'Uploading' }, '…'));
+  strip.append(el('button', { class: 'tile add', type: 'button', 'aria-label': 'Add photos', on: { click: onAdd } }, '+'));
   return strip;
 }
 function photosComposer(c) {
@@ -611,14 +615,14 @@ function photosComposer(c) {
 function photoPhone(platform, images) {
   const ph = el('div', { class: 'phone' + (platform === 'linkedin' ? ' light' : '') });
   if (!images.length) { ph.append(el('div', { class: 'ph-empty' }, 'Add photos to preview')); return ph; }
-  if (!previewUI) { ph.className = 'phone clean'; ph.append(el('div', { style: 'position:absolute;inset:0' }, carousel(images, 'fill'))); return ph; }
-  const me = S.extras?.account?.username || 'yourname';
-  const av = el('img', { class: 'av', src: imgUrl(S.extras?.account?.avatar || images[0]), alt: '' });
+  if (!previewUI) { ph.className = 'phone clean'; ph.append(el('div', { style: 'position:absolute;inset:0' }, carousel(images, 'fill', photoSrc))); return ph; }
+  const me = S.extras?.account?.username || S.status?.account || 'yourname';
+  const av = el('img', { class: 'av', src: S.extras?.account?.avatar ? imgUrl(S.extras.account.avatar) : photoSrc(images[0]), alt: '' });
   if (platform === 'instagram' || platform === 'facebook' || platform === 'linkedin') {
     const ratio = platform === 'instagram' ? '4 / 5' : platform === 'facebook' ? '4 / 5' : '2 / 3';
-    ph.append(el('div', { class: 'ph-feed' }, el('div', { class: 'urow', style: `padding:10px 12px;color:${platform === 'linkedin' ? '#191919' : '#fff'}` }, av, me), el('div', { style: `aspect-ratio:${ratio};position:relative;overflow:hidden` }, carousel(images, 'fill')), el('div', { class: 'small', style: `padding:10px 12px;color:${platform === 'linkedin' ? '#191919' : '#fff'};font-size:12px` }, previewCaption(platform, C.caption))));
+    ph.append(el('div', { class: 'ph-feed' }, el('div', { class: 'urow', style: `padding:10px 12px;color:${platform === 'linkedin' ? '#191919' : '#fff'}` }, av, me), el('div', { style: `aspect-ratio:${ratio};position:relative;overflow:hidden` }, carousel(images, 'fill', photoSrc)), el('div', { class: 'small', style: `padding:10px 12px;color:${platform === 'linkedin' ? '#191919' : '#fff'};font-size:12px` }, previewCaption(platform, C.caption))));
   } else {
-    ph.append(el('div', { style: 'position:absolute;inset:0' }, el('img', { class: 'blurfill', src: imgUrl(images[0]), alt: '' }), carousel(images, 'contain')), el('div', { class: 'ui' }, el('div', { class: 'capblock', style: 'bottom:56px' }, el('b', {}, `@${me}`), el('div', {}, previewCaption('tiktok', C.caption)))));
+    ph.append(el('div', { style: 'position:absolute;inset:0' }, el('img', { class: 'blurfill', src: photoSrc(images[0]), alt: '' }), carousel(images, 'contain', photoSrc)), el('div', { class: 'ui' }, el('div', { class: 'capblock', style: 'bottom:56px' }, el('b', {}, `@${me}`), el('div', {}, previewCaption('tiktok', C.caption)))));
   }
   return ph;
 }
@@ -648,12 +652,12 @@ function storyPhone(frames) {
   const ph = el('div', { class: 'phone' });
   if (!frames.length) { ph.append(el('div', { class: 'ph-empty' }, 'Add frames to preview')); return ph; }
   let i = 0;
-  const img = el('img', { class: 'story-img', src: imgUrl(frames[0]), alt: '' });
+  const img = el('img', { class: 'story-img', src: photoSrc(frames[0]), alt: '' });
   const bars = el('div', { class: 'story-bars' }, ...frames.map((_, k) => el('i', { class: k === 0 ? 'on' : '' })));
-  const me = S.extras?.account?.username || 'yourname';
-  if (!previewUI) ph.append(img); else ph.append(img, el('div', { class: 'shade-t' }), bars, el('div', { class: 'story-head' }, el('img', { class: 'av', src: imgUrl(S.extras?.account?.avatar || frames[0]), alt: '' }), el('b', {}, me), el('span', { class: 'faint-w' }, 'Scheduled')));
+  const me = S.extras?.account?.username || S.status?.account || 'yourname';
+  if (!previewUI) ph.append(img); else ph.append(img, el('div', { class: 'shade-t' }), bars, el('div', { class: 'story-head' }, el('img', { class: 'av', src: S.extras?.account?.avatar ? imgUrl(S.extras.account.avatar) : photoSrc(frames[0]), alt: '' }), el('b', {}, me), el('span', { class: 'faint-w' }, 'Scheduled')));
   if (previewSafe) ph.append(safeOverlay('story'));
-  ph.addEventListener('click', () => { i = (i + 1) % frames.length; img.src = imgUrl(frames[i]); [...bars.children].forEach((b, k) => b.classList.toggle('on', k <= i)); });
+  ph.addEventListener('click', () => { i = (i + 1) % frames.length; img.src = photoSrc(frames[i]); [...bars.children].forEach((b, k) => b.classList.toggle('on', k <= i)); });
   return ph;
 }
 async function scheduleDemo(kind, images, platforms) {
@@ -663,6 +667,116 @@ async function scheduleDemo(kind, images, platforms) {
     const { post } = await api('/api/demo/post', json('POST', { kind, images, caption: C.caption, at: when.toISOString(), platforms }));
     resetComposer(); toast(`Scheduled for ${fmtWhen(post.publishAt)}`); await load(); location.hash = `#/post/${post.id}`;
   } catch (e) { toast(e.message, true); }
+}
+
+// ---------------------------------------------------------------- photos & story (real app)
+// Instagram only. Photos are uploaded like videos (JPEG / PNG / HEIC); Queue makes the Instagram-ready
+// JPEG at once for the check and the preview, and the final crop (carousel shape, or 9:16 for a
+// story) when you schedule. They reach Instagram by temporary link, so local Queue needs cloudflared.
+const PHOTO_ACCEPT = 'image/jpeg,image/png,image/heic,image/heif,.heic,.heif,.jpg,.jpeg,.png';
+async function addPhotoFiles(list, fileList, max) {
+  const files = [...(fileList || [])].filter((f) => /^image\//.test(f.type) || /\.(heic|heif|jpe?g|png)$/i.test(f.name));
+  if (!files.length) return toast('Choose JPEG, PNG or HEIC photos', true);
+  const room = Math.max(0, max - list.length - (C.uploading || 0));
+  if (files.length > room) toast(room ? `Up to ${max}: adding the first ${room}` : `That's the maximum of ${max}`, true);
+  const redraw = () => { if (currentRoute() === 'new') render(); };
+  for (const f of files.slice(0, room)) {
+    C.uploading = (C.uploading || 0) + 1; redraw();
+    try {
+      const up = await api(`/api/upload?name=${encodeURIComponent(f.name)}`, { method: 'POST', body: f });
+      if (up.kind !== 'photo') throw new Error(`${f.name} isn't a photo`);
+      list.push(up.name); (C.photoInfo ||= {})[up.name] = up;
+    } catch (e) { toast(`${f.name}: ${e.message}`, true); }
+    finally { C.uploading--; redraw(); }
+  }
+}
+function libraryPhotoPicker(target, max) {
+  modal(async (m, close) => {
+    m.classList.add('wide');
+    const chosen = new Set(target);
+    const grid = el('div', { class: 'photo-pick' }, el('div', { class: 'small muted' }, 'Loading…'));
+    m.append(el('div', { class: 'row' }, el('h2', { class: 'h2', style: 'flex:1' }, 'Photos in your Library'), el('span', { class: 'small faint' }, `Up to ${max}`)), grid,
+      el('div', { class: 'foot' }, btn('Cancel', 'ghost', close), btn('Use photos', 'primary', () => { target.splice(0, target.length, ...chosen); close(); render(); })));
+    try {
+      const photos = (await api('/api/media')).items.filter((i) => i.type === 'photo' && !i.fixedCopy);
+      const draw = () => grid.replaceChildren(...(photos.length ? photos.map((it) => el('button', { class: 'ph' + (chosen.has(it.name) ? ' on' : ''), type: 'button', 'aria-pressed': String(chosen.has(it.name)), title: shortName(it.name), on: { click: () => { chosen.has(it.name) ? chosen.delete(it.name) : chosen.size < max && chosen.add(it.name); draw(); } } }, el('img', { src: photoSrc(it.name), alt: shortName(it.name) }), chosen.has(it.name) ? el('span', { class: 'num' }, String([...chosen].indexOf(it.name) + 1)) : null)) : [el('div', { class: 'small muted' }, 'No photos in your Library yet. Upload some first.')]));
+      draw();
+    } catch (e) { grid.replaceChildren(el('div', { class: 'small muted' }, e.message)); }
+  });
+}
+// The photo strip: tiles (drag to reorder, × to remove), + to add, and files dropped anywhere on the card.
+function photoDropCard(title, list, max, labelFor, hint) {
+  const input = el('input', { type: 'file', accept: PHOTO_ACCEPT, multiple: true, class: 'hidden', on: { change: (e) => { addPhotoFiles(list, e.target.files, max); e.target.value = ''; } } });
+  const card = el('div', { class: 'card stack photo-drop', style: 'gap:10px' },
+    el('div', { class: 'row' }, el('h2', { class: 'h3', style: 'flex:1' }, title), el('span', { class: 'small faint' }, `${list.length}/${max}`), btn('From Library', 'ghost small', () => libraryPhotoPicker(list, max))),
+    stripTiles(list, labelFor, () => input.click(), C.uploading || 0),
+    el('div', { class: 'small faint' }, hint), input);
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  card.addEventListener('dragover', (e) => { if (hasFiles(e)) { e.preventDefault(); card.classList.add('over'); } });
+  card.addEventListener('dragleave', () => card.classList.remove('over'));
+  card.addEventListener('drop', (e) => { card.classList.remove('over'); if (e.dataTransfer?.files?.length) { e.preventDefault(); addPhotoFiles(list, e.dataTransfer.files, max); } });
+  return card;
+}
+// Instagram is the one real destination; the rest are honest "Coming soon" rows.
+function realDests(chip) {
+  const dests = el('div', { class: 'card flush' }, el('div', { class: 'row', style: 'padding:14px 18px' }, el('h2', { class: 'h3', style: 'flex:1' }, 'Destinations'), el('span', { class: 'small faint' }, '1 available')));
+  dests.append(el('div', { class: 'dest-row' + (canUse('instagram') ? '' : ' off') }, toggleBtn(true, null, true), badge('instagram'), el('div', { class: 'who' }, el('b', {}, 'Instagram'), el('div', { class: 'small faint' }, handle0())), chip, el('span', { class: 'pill' }, `Queue posts at ${usualLabel()}`)));
+  for (const p of ['facebook', 'tiktok', 'linkedin']) dests.append(el('div', { class: 'dest-row off' }, toggleBtn(false, null, true), badge(p), el('div', { class: 'who' }, el('b', {}, PNAME[p]), el('div', { class: 'small faint' }, PLATFORMS.find((x) => x.id === p)?.delivery || '')), el('span', { class: 'pill soon' }, 'Coming soon')));
+  return dests;
+}
+// What stands between these photos and Instagram, if anything.
+function linkNotes() {
+  const st = S.status || {};
+  if (st.dryRun) return [el('div', { class: 'boxed small' }, 'Dry run: nothing is sent to Instagram until you connect an account.')];
+  if (!st.cloudflared) return [el('div', { class: 'issue error' }, 'Photos reach Instagram by temporary link. Run: brew install cloudflared')];
+  return [];
+}
+function photoChecks(list, extra) {
+  return list.map((n, i) => {
+    const up = C.photoInfo?.[n]; const issues = (up?.check?.issues || []).filter((x) => !/^Cropped to/.test(x.msg) || i === 0 || C.format === 'story');
+    const msg = extra(i) || (issues.length ? issues.map((x) => x.msg).join(' · ') : 'Already right for Instagram');
+    return el('div', { class: 'tv-row', style: 'grid-template-columns:auto 1fr' }, el('img', { src: photoSrc(n), alt: '', style: 'width:36px;height:45px;object-fit:cover;border-radius:6px' }),
+      el('div', {}, el('b', { style: 'font-weight:500' }, C.format === 'story' ? `Frame ${i + 1}` : i === 0 ? 'Cover' : `Photo ${i + 1}`), el('div', { class: 'small muted' }, msg)));
+  });
+}
+const shapeText = (a) => (Math.abs(a - 0.8) < 0.01 ? '4:5' : Math.abs(a - 1) < 0.01 ? '1:1' : `${a.toFixed(2)}:1`);
+function realPhotosComposer(c) {
+  const n = C.photos.length; const busy = C.uploading || 0;
+  const label = n > 1 ? 'Schedule carousel' : 'Schedule photo';
+  topbar('New post', el('span', { class: 'mono small' }, n ? `${n} photo${n === 1 ? '' : 's'} · ${n > 1 ? 'carousel' : 'single photo'}` : 'Photos · up to 10'), [fmtSeg(), cancelBtn(), btn(busy ? 'Uploading…' : label, 'primary', () => scheduleReal('photos', C.photos), { disabled: !n || n > 10 || busy > 0 })]);
+  C.platform = 'instagram';
+  const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview'), uiToggle(render), photoPhone('instagram', C.photos), el('div', { class: 'preview-note' }, "Instagram shows every photo at the first photo's shape. Queue cuts each one to it, once, from your original."));
+  const photos = photoDropCard('Photos', C.photos, 10, (i) => (i === 0 ? 'Cover' : String(i + 1)), 'Drop JPEG, PNG or HEIC here · drag to reorder · the first photo is the cover');
+  const capCard = el('div', { class: 'card stack', style: 'gap:10px' }, el('h2', { class: 'h3' }, 'Caption'), (() => { const t = el('textarea', { class: 'input', placeholder: 'Write a caption…', maxlength: 2200 }); t.value = C.caption; t.addEventListener('input', () => { C.caption = t.value; const capEl = document.querySelector('.phone .small'); if (capEl) capEl.textContent = previewCaption('instagram', C.caption); }); return t; })());
+  const shape = C.photoInfo?.[C.photos[0]]?.check?.aspect;
+  const check = el('div', { class: 'card stack', style: 'gap:10px' }, el('h2', { class: 'h3' }, 'Photo check'),
+    ...(n ? photoChecks(C.photos, (i) => (i > 0 && shape ? `Cut to the cover's shape (${shapeText(shape)}) when you schedule` : null)) : [el('div', { class: 'small muted' }, 'Add photos to check them.')]),
+    el('div', { class: 'boxed small' }, 'JPEG · sRGB · up to 1080 wide. Each photo is resized once, from your original.'), ...linkNotes());
+  c.append(el('div', { class: 'composer' }, col1, el('div', { class: 'stack' }, photos, realDests(el('span', { class: 'chip' + (n > 10 ? ' warn' : '') }, n > 1 ? `Carousel ${n}/10` : 'Photo')), capCard), el('div', { class: 'stack' }, check, dateTimeCard(`${tz} · Queue hands the photos to Instagram ${mins(S.config?.stageWindowMin ?? 120)} early so they're processed on time.`))));
+}
+function realStoryComposer(c) {
+  const n = C.frames.length; const busy = C.uploading || 0;
+  topbar('New post', el('span', { class: 'mono small' }, n ? `${n} frame${n === 1 ? '' : 's'} · ${n * 5}s total · 9:16` : 'Story · up to 10 frames'), [fmtSeg(), cancelBtn(), btn(busy ? 'Uploading…' : 'Schedule story', 'primary', () => scheduleReal('story', C.frames), { disabled: !n || n > 10 || busy > 0 })]);
+  const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview'), previewToggles(render), storyPhone(C.frames), el('div', { class: 'preview-note' }, 'Tap the preview to step through frames. The top and bottom 14% sit under the story bar and reply box.'));
+  const frames = photoDropCard('Frames', C.frames, 10, () => '5s Photo', 'Drop JPEG, PNG or HEIC here · each photo shows for 5 seconds · frames post in order');
+  const stickers = el('div', { class: 'card stack', style: 'gap:10px' }, el('h2', { class: 'h3' }, "Stickers can't be added by any app"), el('div', { class: 'small muted' }, "Links, polls, music and mentions aren't available through Instagram's API. Stories take no caption."));
+  const check = el('div', { class: 'card stack', style: 'gap:10px' }, el('h2', { class: 'h3' }, 'Story check'),
+    ...(n ? photoChecks(C.frames, () => 'Cut to 9:16 (1080×1920) when you schedule') : [el('div', { class: 'small muted' }, 'Add frames to check them.')]),
+    el('div', { class: 'inset small muted stack', style: 'gap:6px' }, el('div', { class: 'label' }, 'Delivery'), el('div', {}, `• Instagram can't schedule stories itself — Queue posts the frames at ${usualLabel()}, one after another.`), el('div', {}, '• Frames are handed over early and kept for up to 24 hours, so they go out on time.')), ...linkNotes());
+  c.append(el('div', { class: 'composer' }, col1, el('div', { class: 'stack' }, frames, realDests(el('span', { class: 'chip' }, 'Story')), stickers), el('div', { class: 'stack' }, check, dateTimeCard())));
+}
+async function scheduleReal(kind, images) {
+  if (C.busy) return;
+  const when = fromInputs(C.date, C.time);
+  if (!when || when < Date.now()) return toast('Pick a post time in the future', true);
+  if (kind === 'photos' && C.caption.length > 2200) return toast('Caption is over 2,200 characters', true);
+  C.busy = true;
+  toast(kind === 'story' ? 'Preparing your frames…' : 'Preparing your photos…');
+  try {
+    const { post } = await api('/api/schedule', json('POST', { kind, images, caption: kind === 'story' ? '' : C.caption, at: when.toISOString() }));
+    resetComposer(); toast(`Scheduled for ${fmtWhen(post.publishAt)}`); await load(); location.hash = `#/post/${post.id}`;
+  } catch (e) { toast(e.message, true); }
+  finally { C.busy = false; }
 }
 
 // ================================================================ BENCHMARK
@@ -853,7 +967,7 @@ function addBenchResult(b, preset = {}) {
     drawSrc();
     try {
       const { items } = await api('/api/media');
-      const originals = items.filter((i) => !i.fixedCopy);
+      const originals = items.filter((i) => !i.fixedCopy && i.type !== 'photo');
       clipSel.replaceChildren(el('option', { value: '' }, originals.length ? 'Choose a clip…' : 'Your Library is empty'), ...originals.map((i) => el('option', { value: i.name, selected: i.name === preset.clip }, `${shortName(i.name)}${i.meta ? ` · ${resLabel(i.meta)}` : ''}`)));
     } catch (e) { err.textContent = e.message; }
   });

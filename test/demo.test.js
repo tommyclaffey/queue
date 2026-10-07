@@ -13,10 +13,13 @@ import { DEMO_ACCOUNT, DEMO_PLATFORMS } from '../src/demo.js';
 import { tmp, cleanup, makeVideo } from './helpers.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-let dir, app, base, queue;
+let dir, app, base, queue, multiSrc;
 
 before(async () => {
   dir = tmp();
+  // Made before the server starts: a slow, blocking ffmpeg run between two requests lets the server's
+  // 5 s keep-alive close the socket fetch is about to reuse (ECONNRESET on a loaded machine).
+  multiSrc = makeVideo(dir, 'multi.mp4');
   const assets = join(dir, 'assets');
   mkdirSync(assets);
   for (const n of ['avatar', 'drums', 'latte']) execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=gray:s=64x96', '-frames:v', '1', join(assets, `${n}.jpg`)]);
@@ -58,7 +61,7 @@ test('photo and story posts can be scheduled, and the simulated scheduler posts 
 });
 
 test('multi-platform video posts keep their platforms; TikTok lands in drafts', async () => {
-  const src = makeVideo(dir, 'multi.mp4');
+  const src = multiSrc;
   const { readFileSync } = await import('node:fs');
   const up = await api('/api/upload?name=multi.mp4', { method: 'POST', body: readFileSync(src) });
   const s = await api('/api/schedule', json('POST', { name: up.body.name, at: new Date(Date.now() + 400).toISOString(), caption: 'multi', platforms: ['instagram', 'tiktok', 'bogus'] }));

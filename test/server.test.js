@@ -11,11 +11,15 @@ import { startMockMeta, GOOD_TOKEN } from './mock-meta.js';
 import { tmp, cleanup, makeVideo } from './helpers.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-let meta, dir, app, base, queue;
+let meta, dir, app, base, queue, benchOrig, benchServed;
 
 before(async () => {
   meta = await startMockMeta();
   dir = tmp();
+  // Slow fixtures are made before the server starts: a long blocking ffmpeg run between two requests
+  // lets the server's 5 s keep-alive close the socket fetch reuses next (ECONNRESET under load).
+  benchOrig = makeVideo(dir, 'bench-orig.mp4');
+  benchServed = makeVideo(dir, 'bench-served.mp4', { vbitrate: '300k' });
   queue = new Queue(join(dir, 'queue.json'));
   const ig = new InstagramClient({ login: 'facebook', userId: meta.userId, token: GOOD_TOKEN, graphHost: meta.host, ruploadHost: meta.host, retryDelayMs: 5 });
   app = startServer({ root: ROOT, mediaDir: join(dir, 'media'), dataDir: join(dir, 'data'), envFile: join(dir, '.env'), makeIg: (o) => new InstagramClient({ ...o, graphHost: meta.host, ruploadHost: meta.host, retryDelayMs: 5 }), queue, ig, port: 0, tickMs: 150, log: () => {} });
@@ -207,9 +211,8 @@ test('the real app is not the demo: no fake accounts, no demo posts, honest qual
 });
 
 test('benchmark: create, add a result from an uploaded file, average, remove', async () => {
-  const orig = makeVideo(dir, 'bench-orig.mp4');
-  const up = await upload(orig, 'Bench Clip.mp4');
-  const served = makeVideo(dir, 'bench-served.mp4', { vbitrate: '300k' });
+  const up = await upload(benchOrig, 'Bench Clip.mp4');
+  const served = benchServed;
   assert.equal((await api('/api/benchmarks', json('POST', { name: '  ' }))).status, 400);
   const b = (await api('/api/benchmarks', json('POST', { name: 'Test bench' }))).body.benchmark;
   const add = (clip, route, file) => api(`/api/benchmarks/${b.id}/entries?clip=${encodeURIComponent(clip)}&route=${encodeURIComponent(route)}`, { method: 'POST', body: readFileSync(file) });

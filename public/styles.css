@@ -256,6 +256,7 @@ textarea.input { min-height: 112px; resize: vertical; line-height: 21px; }
 .media-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .media-card .frame { position: relative; aspect-ratio: 9 / 16; border-radius: 12px; overflow: hidden; background: var(--surface-3); }
 .media-card video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.media-card .frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .media-card .dur { position: absolute; right: 6px; bottom: 6px; background: rgba(0,0,0,.65); color: #fff; border-radius: 4px; padding: 0 5px; font: 500 11px/18px var(--mono); }
 .media-card b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .split-bar { display: flex; gap: 3px; height: 8px; }
@@ -471,6 +472,8 @@ img.avatar { object-fit: cover; background: var(--surface-3); }
 .tile:hover .x { opacity: 1; }
 .tile.add { border: 1.5px dashed var(--border-strong); background: transparent; font-size: 22px; color: var(--text-tertiary); cursor: pointer; display: grid; place-items: center; }
 .tile.add:hover { color: var(--text-primary); border-color: var(--text-primary); }
+.photo-drop.over { box-shadow: 0 0 0 2px var(--text-primary); }
+.tile.busy { display: grid; place-items: center; font: 500 10px var(--mono); color: var(--text-tertiary); cursor: default; }
 .photo-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; max-height: 60vh; overflow: auto; }
 .photo-pick .ph { position: relative; aspect-ratio: 3 / 4; border-radius: 10px; overflow: hidden; border: 0; padding: 0; cursor: pointer; background: var(--surface-3); }
 .photo-pick .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }

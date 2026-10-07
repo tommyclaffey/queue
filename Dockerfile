@@ -1,6 +1,7 @@
 # Queue on a server (Railway etc.). Runs the web app + scheduler 24/7.
 # Data, videos and the saved Instagram login live on a volume mounted at /data.
-FROM node:22-bookworm-slim
+# trixie ships ffmpeg 7.1: reads iPhone HEIC photos (tile grids) and has zscale for HDR → SDR.
+FROM node:22-trixie-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
  && rm -rf /var/lib/apt/lists/*

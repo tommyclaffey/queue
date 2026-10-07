@@ -22,6 +22,8 @@ export function startMockMeta({ version = 'v25.0', userId = '1784', processingPo
     rejectPublishWith: null, // { code, message, status } for a permanent publish error
     ruploadFailNext: 0, // upload server says 'busy, retriable'
     dropAfterPublish: 0, // publish succeeds on Meta's side, but the reply never arrives
+    rejectPublishIds: new Set(), // permanent publish error for these container ids only
+    expiredIds: new Set(), // these containers passed Meta's 24h limit: EXPIRED, and can't be published
   };
   let seq = 0;
 
@@ -159,6 +161,8 @@ export function startMockMeta({ version = 'v25.0', userId = '1784', processingPo
       }
       const c = state.containers.get(body.get('creation_id'));
       if (!c) return err(res, 400, 100, 'Invalid creation_id');
+      if (state.expiredIds.has(body.get('creation_id'))) return err(res, 400, 100, 'The media container has expired');
+      if (state.rejectPublishIds.has(body.get('creation_id'))) return err(res, 400, 10, 'Application does not have permission for this action');
       if (c.isItem) return err(res, 400, 100, 'Carousel items cannot be published on their own. Publish the carousel.');
       if (c.status !== 'FINISHED') return err(res, 400, 9007, 'Media ID is not available', { error_subcode: 2207027 });
       c.status = 'PUBLISHED';
@@ -199,9 +203,11 @@ export function startMockMeta({ version = 'v25.0', userId = '1784', processingPo
         }
         const bad = kids.find((k) => k.status === 'ERROR');
         if (bad) return ok(res, { status_code: 'ERROR', status: `A carousel item failed: ${bad.error}`, id });
+        if (state.forceStatus && c.status !== 'PUBLISHED') return ok(res, { status_code: state.forceStatus, id });
         if (c.status === 'IN_PROGRESS' && kids.every((k) => k.status === 'FINISHED')) c.status = 'FINISHED';
         return ok(res, { status_code: c.status, id });
       }
+      if (c && state.expiredIds.has(id)) return ok(res, { status_code: 'EXPIRED', id });
       if (c) {
         if (c.fetching) await c.fetching;
         if (c.status === 'ERROR') return ok(res, { status_code: 'ERROR', status: c.error, id });

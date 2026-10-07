@@ -38,3 +38,28 @@ test("storage cleanup only clears posted + abandoned copies — never anything s
   assert.equal(q.posts.find((p) => p.status === 'published').fileCleared, true);
   cleanup(dir);
 });
+
+test('storage: photos of a waiting carousel or story (originals + prepared JPEGs) are never cleared', () => {
+  const dir = tmp();
+  const media = join(dir, 'media');
+  mkdirSync(media);
+  const q = new Queue(join(dir, 'q.json'));
+  const f = (n) => { const p = join(media, n); writeFileSync(p, Buffer.alloc(500)); const t = new Date(Date.now() - 3 * 3600e3); utimesSync(p, t, t); return p; };
+  // Waiting carousel: originals (HEIC, PNG) + the JPEGs Instagram will get.
+  f('600-a.HEIC'); f('600-a.photo.jpg'); f('601-b.png'); const bShaped = f('601-b.photo-r800.jpg'); f('601-b.photo.jpg');
+  q.add({ file: null, kind: 'photos', images: ['600-a.photo.jpg', '601-b.photo-r800.jpg'], imageFiles: [join(media, '600-a.photo.jpg'), bShaped], sources: ['600-a.HEIC', '601-b.png'], publishAt: Date.now() + 9e6 });
+  // Posted story: clearable.
+  f('700-s.jpg'); const sPrep = f('700-s.photo-story.jpg');
+  q.update(q.add({ file: null, kind: 'story', images: ['700-s.photo-story.jpg'], imageFiles: [sPrep], sources: ['700-s.jpg'], publishAt: Date.now() + 9e6 }), { status: 'published' });
+  // Photo uploaded long ago, never used: clearable with its preview.
+  f('800-old.jpg'); f('800-old.photo.jpg');
+
+  const { summary } = mediaReport(media, q.posts);
+  assert.equal(summary.posted.count, 2);
+  assert.equal(summary.unused.count, 2);
+  clearMedia(media, q);
+  for (const keep of ['600-a.HEIC', '600-a.photo.jpg', '601-b.png', '601-b.photo-r800.jpg', '601-b.photo.jpg']) assert.ok(existsSync(join(media, keep)), keep);
+  for (const gone of ['700-s.jpg', '700-s.photo-story.jpg', '800-old.jpg', '800-old.photo.jpg']) assert.ok(!existsSync(join(media, gone)), gone);
+  assert.equal(q.posts.find((p) => p.kind === 'story').fileCleared, true);
+  cleanup(dir);
+});

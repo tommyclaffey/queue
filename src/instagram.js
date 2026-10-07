@@ -180,6 +180,15 @@ export class InstagramClient {
     return id;
   }
 
+  // A single feed photo (not part of a carousel). The caption lives on it; publish its id.
+  async stagePhoto({ imageUrl, caption }) {
+    if (this.dryRun) return `dry_photo_${Date.now()}`;
+    if (!imageUrl) throw new Error('A photo needs an imageUrl');
+    const params = new URLSearchParams({ image_url: imageUrl, caption: caption || '' });
+    const { id } = await this.#call(`${this.graph}/${this.userId}/media`, { method: 'POST', body: params });
+    return id;
+  }
+
   // One story frame (photo or video). Stories take no caption; each frame is published on its own.
   async stageStory({ imageUrl, videoUrl }) {
     if (this.dryRun) return `dry_story_${Date.now()}`;

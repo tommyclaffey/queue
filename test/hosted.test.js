@@ -105,3 +105,17 @@ test('Instagram can download a staged video by its secret link, no session; noth
   assert.ok((await r.arrayBuffer()).byteLength > 1000);
   assert.equal((await fetch(base + '/v/' + 'a'.repeat(64) + '/video.mp4')).status, 404);
 });
+
+test('Instagram can fetch a staged PHOTO by its secret link too (photos only travel as links)', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const p = join(dir, 'staged.jpg');
+  execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=1080x1350', '-frames:v', '1', p]);
+  const { url, token } = await files.share(p);
+  assert.match(url, /^https:\/\/queue\.example\/v\/[a-f0-9]{64}\/photo\.jpg$/);
+  const r = await fetch(base + new URL(url).pathname);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'image/jpeg');
+  assert.equal((await fetch(base + new URL(url).pathname.replace('photo.jpg', 'photo.png'))).status, 404);
+  await files.unshare(token);
+  assert.equal((await fetch(base + new URL(url).pathname)).status, 404, 'closed link is gone');
+});

@@ -1,6 +1,6 @@
 # Queue — social media scheduler
 
-Schedule Instagram Reels **without wrecking the video quality.**
+Schedule Instagram Reels, photo carousels and stories **without wrecking the quality.**
 
 ## The idea
 
@@ -10,7 +10,8 @@ scheduler already compressed before it got to Instagram. So Queue:
 
 1. **Checks** the file against Meta's Reels spec
 2. **Fixes it the least destructive way:** lossless rewrap < audio-only fix < one clean re-encode
-   (iPhone HDR is first converted to standard colour with Apple's `avconvert`)
+   (iPhone HDR is first converted to standard colour with Apple's `avconvert`; on Linux, ffmpeg
+   tone-maps it in the same single encode, if its build has the `zscale` filter)
 3. **Delivers the original bytes**, with no middleman compressing them:
    - `IG_LOGIN=instagram`: Meta downloads the file from a short-lived Cloudflare tunnel on this Mac (random 256-bit link, closed once Meta has the file)
    - `IG_LOGIN=facebook`: resumable upload straight to `rupload.facebook.com`
@@ -18,6 +19,20 @@ scheduler already compressed before it got to Instagram. So Queue:
 
 Instagram's API has **no drafts and no native scheduling**. Staging early and then publishing is how
 we get the same result.
+
+## Photos and stories
+
+- **Upload** JPEG, PNG or HEIC (recognised by the file's bytes, not its name). Queue keeps the original and
+  makes the Instagram-ready JPEG at once: **sRGB · up to 1080 wide · a legal shape** (4:5 to 1.91:1), so the
+  check and the preview are real. macOS uses `sips` (ColorSync); Linux uses ffmpeg (Display P3 → sRGB is a
+  real conversion; HEIC needs ffmpeg 7.1+)
+- **One photo** → one image post. **2–10 photos** → a carousel, every photo cut to the **first photo's shape**
+  (Instagram shows them all at that shape anyway). **Story** → 1–10 frames, each cut to 9:16
+- Each photo is resized **once, from your original**, never twice
+- Photos reach Instagram **only by temporary link** (`image_url`; there's no direct upload for images), so
+  local Queue needs `cloudflared` even with Facebook login. Hosted Queue serves the links itself
+- Carousel: each item is staged, then the carousel container; published once Meta reports it `FINISHED`.
+  Story: one container per frame, published **in order** at post time, one publish per frame
 
 ## Setup
 
@@ -38,7 +53,10 @@ So the Mac doesn't have to be on at post time. `HOSTED=1` switches on what a pub
   30-day HttpOnly session; 10 wrong passwords lock that address out for 15 minutes
 - **Instagram's video links are served by the app itself** at `/v/<256-bit token>/…`, so no tunnel is needed
 - **Data, videos and the saved login on a volume** at `DATA_DIR` (`/data` in the Dockerfile)
-- Mac-only extras are off: Apple's HDR converter (HDR clips get a clear "export standard colour" message), notifications, start at login
+- Mac-only extras are off: Apple's HDR converter (HDR clips are tone-mapped with ffmpeg's `zscale` if the
+  build has it, otherwise a clear "export standard colour" message), notifications, start at login
+- Photos are prepared with ffmpeg instead of `sips`. The Dockerfile's Debian ffmpeg (5.1) can't read HEIC:
+  those get a clear "export as JPEG" message
 
 ```bash
 railway init --name queue        # needs a paid plan (Hobby)
@@ -97,8 +115,8 @@ over the defaults. Changes apply immediately — no restart.
 **Autostart** (off by default): `node bin/queue.js autostart on` installs a LaunchAgent that starts
 Queue at login and restarts it after a crash. `autostart off` removes it. Log: `data/queue.log`.
 
-**Storage:** Queue keeps its own copies of videos in `media/`. `node bin/queue.js storage [--clear]`
-(or **Clear** in the web app) deletes copies of posted Reels and uploads never scheduled. It never
+**Storage:** Queue keeps its own copies of videos and photos in `media/`. `node bin/queue.js storage [--clear]`
+(or **Clear** in the web app) deletes copies of posted Reels, carousels and stories, and uploads never scheduled. It never
 touches anything still waiting to post, or your originals.
 
 Only one scheduler runs at a time (`data/scheduler.lock`). While it runs, the Mac won't idle-sleep
@@ -120,16 +138,22 @@ Only one scheduler runs at a time (`data/scheduler.lock`). While it runs, the Ma
 | Container expires while waiting to post | Re-staged |
 | Stuck 3 times in a row | `failed` (no endless re-uploads) |
 | Instagram-login token | Refreshed weekly, saved to `data/token.json` (mode 600). A new `.env` token wins |
+| Carousel or story photo can't be processed | One automatic re-stage (photos always use a link), then `failed` with Meta's reason |
+| Story stops midway (error, lost reply, Mac asleep) | Each frame is recorded the moment it's live. Retry / Post now resumes at the next frame; a live frame is **never re-posted or re-uploaded** |
+| Story frame expires before posting | Only the frames not yet live are re-staged |
+| Carousel/story links | Kept open while Meta is fetching (every photo's link), closed once it has them |
 
 ## Tests
 
 ```bash
-npm test     # 114 tests, ~60s
+npm test     # 143 tests, ~80s
 ```
 
 - `test/mock-meta.js` is a strict fake of Meta's Graph + rupload APIs, built from Meta's docs. It checks
   headers, params and byte counts, and can simulate outages, socket drops, expiry and processing errors
 - Preflight tests run on real ffmpeg-generated files, including 4K, 10-bit, HLG HDR, PCM audio, 5.1 and MKV
+- Photo tests run both engines (`sips` and ffmpeg), including a Display P3 red that must come out sRGB red and a
+  tiled iPhone-style HEIC. The ffmpeg HDR tone-map test is skipped when ffmpeg has no `zscale`
 - Proves: the uploaded or downloaded bytes are identical to the file on disk, and a remux leaves the video packets untouched
 
 **Not yet verified against the real Instagram API.** The first live post will confirm the mock matches reality.
@@ -138,6 +162,8 @@ npm test     # 114 tests, ~60s
 
 - 50 or 100 API posts per rolling 24h (the docs disagree; the live `quota_total` is used)
 - Reels: 3s–15min, ≤ 300 MB, H.264/HEVC, 8-bit 4:2:0, 23–60 fps, AAC ≤ 48 kHz
+- Photos: JPEG only, by public link, 320–1440 px wide, 4:5 to 1.91:1, ≤ 8 MB. Carousels 2–10 items. Stories take
+  no caption; every story frame counts as one post against the daily limit
 - The API can't add Instagram library music, filters or stickers
 - `media_url` (used by `compare`) is withheld for Reels with licensed music
 - Posting to accounts you don't own needs Meta App Review
@@ -151,16 +177,16 @@ src/settings.js   app settings (data/settings.json) over .env over defaults
 src/specs.js      Instagram Reels spec
 src/probe.js      ffprobe + moov-atom check
 src/preflight.js  spec check → least-destructive fix plan
-src/conform.js    remux / audio / re-encode / HDR→SDR
-src/photo.js      photos → JPEG · sRGB · Instagram shape (sips); for carousels and stories
+src/conform.js    remux / audio / re-encode / HDR→SDR (avconvert, or ffmpeg zscale tone-map)
+src/photo.js      photos → JPEG · sRGB · Instagram shape (sips, or ffmpeg); type by magic bytes
 src/instagram.js  Meta API client (both logins, retries)
-src/fileshare.js  temporary public links via Cloudflare tunnel
-src/worker.js     scheduler state machine
+src/fileshare.js  temporary public links (videos and photos) via Cloudflare tunnel
+src/worker.js     scheduler state machine: Reels, photos/carousels, stories
 src/queue.js      JSON schedule, safe across processes
 src/token.js      token renewal
 src/lock.js       single-scheduler lock
 src/notify.js     macOS notifications
-src/storage.js    media copy report + cleanup
+src/storage.js    media copy report + cleanup (videos and photos)
 src/autostart.js  LaunchAgent (start at login)
 src/range.js      crash-proof HTTP range/file streaming
 src/quality.js    VMAF comparison + per-moment timeline
@@ -168,5 +194,5 @@ src/demo.js       builds the demo account (npm run demo)
 src/server.js     localhost web app + API
 public/index.html the UI shell
 public/app.js     core UI: dashboard, queue, calendar, library, accounts, settings
-public/pages.js   post detail, Quality Lab, onboarding, composer (video, photos, story)
+public/pages.js   post detail, Quality Lab, onboarding, composer (video, photos, story — real and demo)
 ```

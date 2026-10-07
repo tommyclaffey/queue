@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { INSTAGRAM_REELS as SPEC } from '../src/specs.js';
 import { probe, moovBeforeMdat } from '../src/probe.js';
 import { preflight } from '../src/preflight.js';
-import { conformAsync } from '../src/conform.js';
+import { conformAsync, conform, hasZscale } from '../src/conform.js';
 import { tmp, cleanup, makeVideo, videoStreamHash } from './helpers.js';
 
 let dir;
@@ -108,4 +108,28 @@ test('iPhone-style HDR (HLG, 10-bit HEVC, 4K) → standard colour 1080×1920 via
   assert.equal(info.video.pixFmt, 'yuv420p');
   assert.notEqual(info.video.colorTransfer, 'arib-std-b67');
   assert.equal(info.video.width, 1080);
+});
+
+// Linux / the hosted server: no Apple converter. ffmpeg tone-maps when it has zscale; otherwise a clear message.
+const hlg = (name, extra = {}) => makeVideo(dir, name, {
+  w: 1080, h: 1920, secs: 3, vcodec: 'libx265', pix: 'yuv420p10le',
+  extraV: ['-x265-params', 'colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc:log-level=error', '-color_primaries', 'bt2020', '-color_trc', 'arib-std-b67', '-colorspace', 'bt2020nc', '-tag:v', 'hvc1'], ...extra,
+});
+
+test('HDR without Apple\'s converter: ffmpeg tone-maps to standard colour in ONE encode', { skip: !hasZscale() && 'this ffmpeg has no zscale filter' }, async () => {
+  const src = hlg('hlg-ff.mov');
+  assert.equal(check(src).plan, 'hdr');
+  const out = await conformAsync(probe(src), 'hdr', SPEC, { avconvert: false });
+  const info = probe(out);
+  assert.equal(check(out).ok, true);
+  assert.equal(check(out).plan, 'none');
+  assert.equal(info.video.pixFmt, 'yuv420p');
+  assert.notEqual(info.video.colorTransfer, 'arib-std-b67');
+  assert.equal(info.video.codec, 'h264');
+});
+
+test('HDR with neither avconvert nor zscale → the clear "export standard colour" message (sync and async)', async () => {
+  const src = hlg('hlg-none.mov', { secs: 1 });
+  await assert.rejects(conformAsync(probe(src), 'hdr', SPEC, { avconvert: false, zscale: false }), /Export SDR from your editor/);
+  assert.throws(() => conform(probe(src), 'hdr', SPEC, { avconvert: false, zscale: false }), /Export SDR from your editor/);
 });
