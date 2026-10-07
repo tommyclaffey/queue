@@ -1,0 +1,21 @@
+# The public Queue demo (its own link on Railway). A made-up business, "Harbor Collective", with a
+# made-up team. Nothing in it can post anywhere: the demo has no Instagram client at all, and
+# uploads, re-encodes and quality measuring are switched off (DEMO_PUBLIC=1).
+#
+# The sample videos, photos and their pre-measured quality scores (~550 MB) are not in git. They
+# ship as one file on a GitHub release, made with:
+#   tar -cf queue-demo.tar --exclude settings.json --exclude list.tsv --exclude avatar.jpg demo/assets demo/media demo/data
+#   gh release upload demo-v1 queue-demo.tar --clobber
+FROM node:22-trixie-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+ARG DEMO_BUNDLE=https://github.com/tommyclaffey/queue/releases/download/demo-v1/queue-demo.tar
+RUN curl -fsSL "$DEMO_BUNDLE" | tar -x -C /app
+COPY package.json ./
+COPY bin ./bin
+COPY src ./src
+COPY public ./public
+ENV NODE_ENV=production DEMO_PUBLIC=1 DEMO_RESET_HOURS=3
+CMD ["node", "bin/queue.js", "demo"]

@@ -43,7 +43,7 @@ export class Queue {
     this.#mtime = mine;
   }
 
-  add({ file, caption = '', publishAt, coverOffsetMs = null, platform = 'instagram_reels', fix = null, source = null, kind = 'reel', images = null, imageFiles = null, sources = null, platforms = ['instagram'], destinations = null }) {
+  add({ file, caption = '', publishAt, coverOffsetMs = null, platform = 'instagram_reels', fix = null, source = null, kind = 'reel', images = null, imageFiles = null, sources = null, platforms = ['instagram'], destinations = null, by = null }) {
     this.#load();
     const post = {
       id: randomUUID().slice(0, 8),
@@ -59,6 +59,7 @@ export class Queue {
       ...(imageFiles ? { imageFiles } : {}), // the prepared JPEGs Instagram gets, in order
       ...(sources ? { sources } : {}), // the original uploads those were made from
       ...(destinations ? { destinations } : {}),
+      ...(by ? { by } : {}), // which teammate scheduled it (the demo's team; hosted accounts later)
       publishAt: new Date(publishAt).toISOString(),
       status: 'queued',
       containerId: null,

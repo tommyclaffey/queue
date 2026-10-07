@@ -84,6 +84,19 @@ re-encoded the way the platform would serve it, then measured with the same code
 - Dates are refreshed on every start, so "Today" is always today
 - The real app stays honest: Instagram only, everything else "Coming soon"
 
+
+### Public demo (its own link)
+
+The demo is a made-up business, **Harbor Collective** (a café + creative space), with a made-up
+team: profile photos, roles, who scheduled each post, and team activity. Team photos are from
+Unsplash (`demo/assets/credits.json`).
+
+`DEMO_PUBLIC=1 npm run demo` serves it to everyone on `$PORT`. Nothing can post (there is no
+Instagram client in demo mode), and anything that costs real CPU or disk is off: uploads,
+re-encodes and quality measuring. It puts itself back to the starting state every
+`DEMO_RESET_HOURS` (default 3). On Railway it runs from `Dockerfile.demo`, which downloads the
+sample media from the `demo-v1` GitHub release.
+
 ## Commands
 
 ```bash

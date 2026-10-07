@@ -216,6 +216,16 @@ const pill = (s) => el('span', { class: `pill ${s}` }, `${GLYPH[s]} ${STATUS[s]}
 const needsYou = (p) => ['missed', 'failed'].includes(statusOf(p));
 const upcoming = (p) => ['scheduled', 'sending', 'ready', 'retrying'].includes(statusOf(p));
 const isDemo = () => !!S.extras?.demo;
+// ---- Team (the demo's made-up team; a hosted Queue shows its signed-in account)
+const teamOf = () => S.extras?.team?.members || [];
+const member = (id) => (id ? teamOf().find((m) => m.id === id) || null : null);
+const meMember = () => member(S.extras?.team?.you) || (S.status?.user ? { name: S.status.user.name || S.status.user.email, role: S.status.user.role === 'owner' ? 'Owner' : 'Member', email: S.status.user.email, avatar: null } : null);
+const initials = (n) => String(n || '?').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+function avatarEl(m, cls = 'av-sm') {
+  if (!m) return null;
+  return m.avatar ? el('img', { class: `av ${cls}`, src: imgUrl(m.avatar), alt: '', title: m.name }) : el('span', { class: `av av-init ${cls}`, title: m.name, 'aria-hidden': 'true' }, initials(m.name));
+}
+const timeAgo = (iso) => { if (!iso) return '—'; const m = Math.round((Date.now() - new Date(iso)) / 60000); if (m < 2) return 'Active now'; if (m < 60) return `${m}m ago`; const h = Math.round(m / 60); return h < 48 ? `${h}h ago` : `${Math.round(h / 24)}d ago`; };
 const PNAME = { instagram: 'Instagram', youtubeshorts: 'YouTube Shorts', youtube: 'YouTube', tiktok: 'TikTok', facebook: 'Facebook', linkedin: 'LinkedIn', threads: 'Threads', pinterest: 'Pinterest', bluesky: 'Bluesky', x: 'X' };
 const platformsOf = (p) => (p.platforms?.length ? p.platforms : ['instagram']);
 const platformStack = (p) => el('span', { class: 'pstack' }, ...platformsOf(p).map((x) => badge(x, true)));
@@ -294,6 +304,12 @@ function renderChrome() {
     el('div', { class: 'who' }, el('b', {}, live ? `@${st.account}` : 'Not connected'), el('div', { class: 'small muted row', style: 'gap:5px' }, el('span', { class: 'dot ' + (live ? 'ok' : st?.accountError ? 'bad' : 'warn') }), live ? 'Instagram · Live' : st?.accountError ? 'Connection problem' : 'Dry run — nothing posts')),
     live ? null : el('span', { class: 'ico faint', html: svgIcon('chevR') }),
   ].filter(Boolean));
+  const me = meMember();
+  $('#me')?.classList.toggle('hidden', !me);
+  if (me) $('#me').replaceChildren(avatarEl(me, 'av-md'), el('div', { class: 'who' }, el('b', {}, me.name), el('div', { class: 'small muted' }, me.role)), el('a', { class: 'ico faint', href: '#/settings', title: 'Settings', 'aria-label': 'Settings', html: svgIcon('settings') }));
+  const note = $('#demoNote');
+  note?.classList.toggle('hidden', !S.extras?.public);
+  if (S.extras?.public) note.replaceChildren(el('b', {}, 'Live demo'), el('div', {}, `Click anything: nothing posts anywhere. It resets every ${S.extras.resetHours || 3} hours.`));
   const used = S.storage?.totalBytes || 0;
   $('#heartbeat').replaceChildren(
     el('div', { class: 'row' }, el('span', { class: 'dot ok', style: 'width:8px;height:8px' }), 'Scheduler running'),
@@ -307,7 +323,7 @@ function renderChrome() {
 function nextCheckText() {
   const st = S.status; if (!st) return '';
   const left = st.nextCheckAt ? Math.max(0, Math.round((new Date(st.nextCheckAt) - Date.now()) / 1000)) : null;
-  const mode = st.dryRun ? 'Dry run' : 'Mac awake';
+  const mode = st.dryRun ? 'Dry run' : st.demo || st.hosted ? 'Online' : 'Mac awake';
   return left == null ? `${mode} · checks every 30s` : `${mode} · next check 0:${String(left % 60).padStart(2, '0')}`;
 }
 setInterval(() => {
@@ -349,7 +365,7 @@ VIEWS.dashboard = (c) => {
   const need = S.posts.filter(needsYou);
   const posted7 = S.posts.filter((p) => statusOf(p) === 'posted' && now - new Date(p.publishedAt || p.publishAt) < 7 * DAY);
   const nPlat = new Set(week.flatMap(platformsOf)).size;
-  const first = S.extras?.account?.name?.split(' ')[0];
+  const first = (meMember()?.name || S.extras?.account?.name)?.split(' ')[0];
   topbar(first ? `${greet}, ${first}` : greet, `${now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })} · ${week.length} post${week.length === 1 ? '' : 's'} going out this week${nPlat > 1 ? ` across ${nPlat} platforms` : ''}`, [btn('Run quality test', 'secondary', () => (location.hash = '#/quality')), btn('Open calendar', 'secondary', () => (location.hash = '#/calendar'))]);
   const next = up[0];
   const kpi = (label, value, sub, cls = '') => el('div', { class: 'card kpi' }, el('div', { class: 'label' }, label), el('div', { class: 'data ' + cls }, value), el('div', { class: 'small muted' }, sub));
@@ -385,6 +401,15 @@ VIEWS.dashboard = (c) => {
     hrow(null, 'Login key', st?.tokenDaysLeft != null ? `${st.tokenDaysLeft} days left` : st?.dryRun ? '—' : 'Renews itself'),
   );
   right.append(att, health);
+  if (isDemo() && S.extras.activity?.length) {
+    const act = el('div', { class: 'card stack', style: 'gap:10px' }, el('div', { class: 'row' }, el('h2', { class: 'h3', style: 'flex:1' }, 'Team activity'), el('span', { class: 'av-stack' }, ...teamOf().filter((m) => !m.invited).slice(0, 5).map((m) => avatarEl(m, 'av-xs')))));
+    for (const a of S.extras.activity.slice(0, 5)) {
+      const who = member(a.who); if (!who) continue;
+      const target = a.postId && S.posts.find((p) => p.id === a.postId);
+      act.append(el('div', { class: 'act-row' + (target ? ' clickable' : ''), on: target ? { click: () => openPost(target) } : null }, avatarEl(who, 'av-sm'), el('div', { class: 'small', style: 'flex:1;min-width:0' }, el('b', { style: 'font-weight:600' }, who.name.split(' ')[0]), ` ${a.verb}`, a.caption ? el('span', { class: 'muted' }, ` “${a.caption}”`) : null), el('span', { class: 'small muted', style: 'white-space:nowrap' }, timeAgo(a.at).replace('Active now', 'just now'))));
+    }
+    right.append(act);
+  }
   main.append(upCard, right);
   c.append(main);
   const chart = qualityChart();
@@ -471,7 +496,7 @@ VIEWS.queue = (c) => {
       tbody.append(el('tr', { class: 'clickable ' + (needsYou(p) ? 'attention' : '') + (queueSel.has(p.id) ? ' selected' : ''), on: { click: (e) => { if (!e.target.closest('button, input, a')) openPost(p); } } },
         el('td', { class: 'cb' }, box),
         el('td', {}, el('div', { class: 'post-cell' }, thumb(p), el('div', { style: 'min-width:0' }, el('div', { class: 'cap' }, postTitle(p)), el('div', { class: 'row small muted', style: 'gap:8px;margin-top:2px' }, platformStack(p), p.error && needsYou(p) ? el('span', { style: 'color:var(--warning)' }, p.error.split(' (Mac')[0].slice(0, 80)) : postMeta(p))))),
-        el('td', { class: 'small', style: 'white-space:nowrap' }, fmtWhen(p.publishAt)),
+        el('td', { class: 'small', style: 'white-space:nowrap' }, fmtWhen(p.publishAt), member(p.by) ? el('div', { class: 'row by', style: 'gap:6px;margin-top:3px' }, avatarEl(member(p.by), 'av-xs'), el('span', { class: 'muted' }, member(p.by).name.split(' ')[0])) : null),
         el('td', {}, pill(s)),
         el('td', {}, qualityCell(p)),
         el('td', {}, el('div', { class: 'row', style: 'justify-content:flex-end;gap:4px' }, primary, more))));
@@ -857,6 +882,45 @@ function changePassword() {
       el('div', { class: 'foot' }, btn('Cancel', 'ghost', close), btn('Change', 'primary', async () => { try { await api('/api/auth/password', json('POST', { current: cur.value, next: next.value })); close(); toast('Password changed. Other devices are signed out.'); } catch (e) { err.textContent = e.message; } })));
   });
 }
+// ---- Team (Settings). The demo's team is made up; inviting adds a row in this browser only.
+const ROLE_TEXT = {
+  Owner: 'Everything, including connected accounts and the team',
+  Admin: 'Connect accounts, manage the team, schedule and post',
+  Editor: 'Schedule, edit, reschedule and post now',
+  Contributor: 'Schedule and edit their own posts',
+  Viewer: 'See the calendar, posts and quality reports',
+};
+function teamRows() {
+  const youId = S.extras?.team?.you;
+  const list = isDemo() ? teamOf() : meMember() ? [{ ...meMember(), id: 'me', lastActive: new Date().toISOString() }] : [];
+  const rows = list.map((m) => el('div', { class: 'team-row' }, avatarEl(m, 'av-md'),
+    el('div', { class: 'txt' }, el('b', {}, m.name, m.id === youId || m.id === 'me' ? el('span', { class: 'you-tag' }, 'You') : null), el('div', { class: 'small muted' }, [m.title, m.email].filter(Boolean).join(' · '))),
+    el('span', { class: 'role-tag', title: ROLE_TEXT[m.role] || '' }, m.role),
+    el('span', { class: 'small ' + (m.invited ? 'warn-text' : 'muted'), style: 'width:92px;text-align:right' }, m.invited ? 'Invite sent' : timeAgo(m.lastActive))));
+  const active = list.filter((m) => !m.invited).length; const pending = list.length - active;
+  const head = el('div', { class: 'row', style: 'margin:2px 0 8px' }, el('div', { class: 'small muted', style: 'flex:1' }, isDemo() ? `${active} members${pending ? ` · ${pending} invite pending` : ''}` : 'Just you for now. Inviting teammates is coming soon.'),
+    isDemo() ? btn('Invite teammate', 'secondary small', inviteTeammate) : null);
+  const roles = el('details', { class: 'roles' }, el('summary', { class: 'small link' }, 'What each role can do'), ...Object.entries(ROLE_TEXT).map(([r, t]) => el('div', { class: 'kv small' }, el('span', { class: 'role-tag' }, r), el('span', { class: 'muted' }, t))));
+  return [head, ...rows, roles];
+}
+function inviteTeammate() {
+  modal((m, close) => {
+    const email = el('input', { class: 'input', type: 'email', placeholder: 'name@example.com', autocomplete: 'off' });
+    const role = el('select', { class: 'select' }, ...['Editor', 'Contributor', 'Viewer', 'Admin'].map((r) => el('option', { value: r }, r)));
+    const hint = el('div', { class: 'small muted' }, ROLE_TEXT.Editor);
+    role.addEventListener('change', () => { hint.textContent = ROLE_TEXT[role.value]; });
+    const err = el('div', { class: 'small', style: 'color:var(--danger)' });
+    m.append(el('h2', { class: 'h2' }, 'Invite a teammate'), el('label', { class: 'field' }, el('span', {}, 'Email'), email), el('label', { class: 'field' }, el('span', {}, 'Role'), role), hint, err,
+      el('div', { class: 'small faint' }, 'Demo: the invite shows up in this browser only. No email is sent.'),
+      el('div', { class: 'foot' }, btn('Cancel', 'ghost', close), btn('Send invite', 'primary', () => {
+        const v = email.value.trim();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { err.textContent = 'Enter an email address.'; return; }
+        if (teamOf().some((x) => x.email.toLowerCase() === v.toLowerCase())) { err.textContent = 'That person is already on the team.'; return; }
+        S.extras.team.members.push({ id: `inv-${Date.now()}`, name: v.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()), title: null, role: role.value, email: v, avatar: null, invited: true });
+        close(); toast(`Invite added for ${v}`); render();
+      })));
+  });
+}
 async function saveSetting(patch) {
   try { S.config = await api('/api/config', json('PATCH', patch)); toast('Saved'); }
   catch (e) { toast(e.message, true); }
@@ -893,6 +957,7 @@ VIEWS.settings = async (c) => {
   const val = (v) => el('span', { class: 'val' }, v);
   const sections = [
     ['appearance', 'Appearance', [['Theme', 'Apple Light, Apple Dark, or follow your Mac. The sun/moon button next to the logo flips it anywhere.', seg]]],
+    ...(isDemo() || S.status?.hosted ? [['team', 'Team', teamRows()]] : []),
     ['scheduling', 'Scheduling', [
       ['Send to Instagram early', 'Upload ahead so Instagram has finished processing by post time. Instagram discards uploads after 24 hours.', selectSetting('stageWindowMin', cfg.stageWindowMin, [30, 60, 120, 240, 480, 720, 1380].map((m) => [m, `${mins(m)} before`]))],
       ['If a post is missed', 'When the Mac was off or asleep at post time. Late posts beyond this wait for your OK.', selectSetting('lateLimitMin', cfg.lateLimitMin, [[0, 'Always ask me'], ...[15, 30, 60, 120, 360, 720].map((m) => [m, `Ask me if > ${mins(m)} late`])])],
@@ -910,7 +975,7 @@ VIEWS.settings = async (c) => {
       ] : []), ['Instagram login', 'IG_LOGIN', val(cfg.login)], ['Upload method', cfg.uploadMode === 'url' ? 'Instagram downloads your original from a temporary link' : 'Direct upload to Meta', val(cfg.uploadMode)], ['Graph API version', 'GRAPH_VERSION', val(cfg.graphVersion)]]],
   ];
   const nav = el('nav', { class: 'subnav' }, ...sections.map(([id, title], i) => el('a', { href: `#/settings`, class: i === 0 ? 'on' : '', 'data-k': id, on: { click: (e) => { e.preventDefault(); document.getElementById(`set-${id}`).scrollIntoView({ behavior: 'smooth', block: 'start' }); } } }, title)));
-  const body = el('div', { style: 'min-width:0' }, ...sections.map(([id, title, rows]) => el('div', { class: 'card', id: `set-${id}`, style: 'margin-bottom:16px;scroll-margin-top:12px' }, el('h2', { class: 'h3', style: 'margin-bottom:6px' }, title), ...rows.map(([t, d, ctrl]) => el('div', { class: 'set-row' }, el('div', { class: 'txt' }, el('b', {}, t), el('div', { class: 'small muted' }, d)), ctrl)))));
+  const body = el('div', { style: 'min-width:0' }, ...sections.map(([id, title, rows]) => el('div', { class: 'card', id: `set-${id}`, style: 'margin-bottom:16px;scroll-margin-top:12px' }, el('h2', { class: 'h3', style: 'margin-bottom:6px' }, title), ...rows.map((r) => (r instanceof Node ? r : el('div', { class: 'set-row' }, el('div', { class: 'txt' }, el('b', {}, r[0]), el('div', { class: 'small muted' }, r[1])), r[2]))))));
   c.append(el('div', { class: 'settings-layout' }, nav, body));
   // Highlight the section in view.
   const content = $('#content');

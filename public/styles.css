@@ -23,7 +23,7 @@
     --bg-app: #000000; --bg-sidebar: #0E0E0F;
     --surface-1: #1C1C1E; --surface-2: #2C2C2E; --surface-3: #3A3A3C; --surface-hover: #48484A;
     --border-subtle: #2C2C2E; --border-default: #38383A; --border-strong: #545458;
-    --text-primary: #F5F5F7; --text-secondary: #A1A1A6; --text-tertiary: #6E6E73; --text-on-brand: #000000;
+    --text-primary: #F5F5F7; --text-secondary: #A1A1A6; --text-tertiary: #6E6E73; --text-on-brand: #000000; --warning: #FF9F0A;
     --brand: #F5F5F7; --brand-hover: #FFFFFF; --brand-subtle: #2C2C2E; --brand-text: #FFFFFF;
     --success: #30D158; --success-subtle: #0F2A17; --warning: #FF9F0A; --warning-subtle: #2E2208;
     --danger: #FF453A; --danger-subtle: #301311; --info: #0A84FF; --info-subtle: #0B2240;
@@ -35,7 +35,7 @@
   --bg-app: #000000; --bg-sidebar: #0E0E0F;
   --surface-1: #1C1C1E; --surface-2: #2C2C2E; --surface-3: #3A3A3C; --surface-hover: #48484A;
   --border-subtle: #2C2C2E; --border-default: #38383A; --border-strong: #545458;
-  --text-primary: #F5F5F7; --text-secondary: #A1A1A6; --text-tertiary: #6E6E73; --text-on-brand: #000000;
+  --text-primary: #F5F5F7; --text-secondary: #A1A1A6; --text-tertiary: #6E6E73; --text-on-brand: #000000; --warning: #FF9F0A;
   --brand: #F5F5F7; --brand-hover: #FFFFFF; --brand-subtle: #2C2C2E; --brand-text: #FFFFFF;
   --success: #30D158; --success-subtle: #0F2A17; --warning: #FF9F0A; --warning-subtle: #2E2208;
   --danger: #FF453A; --danger-subtle: #301311; --info: #0A84FF; --info-subtle: #0B2240;
@@ -595,3 +595,32 @@ pre.method { margin: 0; white-space: pre-wrap; font: 12px/18px var(--mono); colo
   .platforms { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .phone.clean .carousel .cnt, .phone.clean .carousel .dots { display: none; }
+
+/* ---------------------------------------------------------------- team (demo + hosted) */
+.av { border-radius: 50%; flex: none; object-fit: cover; background: var(--surface-3); }
+.av-init { display: inline-grid; place-items: center; font-weight: 600; color: var(--text-primary); background: var(--surface-3); border: 1px solid var(--border-subtle); }
+.av-xs { width: 18px; height: 18px; font-size: 8.5px; }
+.av-sm { width: 24px; height: 24px; font-size: 10px; }
+.av-md { width: 34px; height: 34px; font-size: 12.5px; }
+.av-stack { display: inline-flex; }
+.av-stack .av { box-shadow: 0 0 0 2px var(--surface-1); }
+.av-stack .av + .av { margin-left: -6px; }
+.me { display: flex; align-items: center; gap: 10px; padding: 10px 6px 2px; }
+.me .who { flex: 1; min-width: 0; }
+.me .who .small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.me .who b { display: block; font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.me .ico { color: var(--text-tertiary); }
+.me .ico:hover { color: var(--text-primary); }
+.demo-note { margin-bottom: 10px; padding: 10px 12px; border-radius: 12px; font-size: 12.5px; line-height: 1.4; background: var(--surface-1); border: 1px dashed var(--border-strong, var(--border-subtle)); color: var(--text-secondary); }
+.demo-note b { display: block; color: var(--text-primary); font-weight: 600; margin-bottom: 2px; }
+.act-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+.act-row.clickable:hover b { text-decoration: underline; }
+.team-row { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid var(--border-subtle); }
+.team-row .txt { flex: 1; min-width: 0; }
+.team-row .txt b { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.you-tag { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--surface-3); color: var(--text-primary); }
+.role-tag { font-size: 12px; font-weight: 500; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--border-subtle); color: var(--text-secondary); white-space: nowrap; }
+.warn-text { color: var(--warning); font-weight: 500; }
+.roles { border-top: 1px solid var(--border-subtle); padding-top: 10px; }
+.roles summary { cursor: pointer; margin-bottom: 6px; }
+.roles .kv .role-tag { width: 92px; text-align: center; }

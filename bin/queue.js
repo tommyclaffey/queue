@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Queue — schedule Instagram Reels without wrecking video quality.
-import { existsSync, readFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -244,23 +244,38 @@ try {
     case 'demo': {
       // A separate demo account with sample content: never touches your real queue, media or login.
       needFfmpeg();
-      const port = Number(process.env.DEMO_PORT || 4401);
+      // DEMO_PUBLIC=1 → the shareable demo (Railway): listens on $PORT for everyone, and puts
+      // everything back the way it was every DEMO_RESET_HOURS so visitors always see a tidy account.
+      const pub = process.env.DEMO_PUBLIC === '1';
+      const port = Number((pub && process.env.PORT) || process.env.DEMO_PORT || 4401);
+      const resetHours = pub ? Math.max(1, Number(process.env.DEMO_RESET_HOURS || 3)) : null;
       console.log('\n  Building the demo account…');
       const { media, data } = await buildDemo(ROOT);
       const extras = JSON.parse(readFileSync(join(data, 'demo.json'), 'utf8'));
+      const demoCfg = { ...extras, assetsDir: join(ROOT, 'demo', 'assets'), public: pub, resetHours };
       const app = startServer({
-        root: ROOT, mediaDir: media, dataDir: data, port, tickMs: 5000,
+        root: ROOT, mediaDir: media, dataDir: data, port, tickMs: 5000, host: pub ? '0.0.0.0' : null,
         queue: new Queue(join(data, 'queue.json')),
         ig: new InstagramClient({ login: 'instagram', dryRun: true }),
-        demo: { ...extras, assetsDir: join(ROOT, 'demo', 'assets') },
+        demo: demoCfg,
         notify: () => {}, log: () => {},
       });
+      if (pub) {
+        setInterval(async () => {
+          try {
+            rmSync(join(data, 'settings.json'), { force: true }); // visitors' Settings changes
+            await buildDemo(ROOT, { log: () => {} }); // re-seeds posts, team activity and dates
+            Object.assign(demoCfg, JSON.parse(readFileSync(join(data, 'demo.json'), 'utf8')));
+            console.log(`  ↻ demo reset ${new Date().toISOString()}`);
+          } catch (err) { console.error('  demo reset failed:', err.message); }
+        }, resetHours * 3600e3).unref();
+      }
       app.server.on('error', (err) => {
         console.error(err.code === 'EADDRINUSE' ? `\n❌ Port ${port} is already in use. The demo may already be running: http://localhost:${port}\n` : `\n❌ ${err.message}\n`);
         process.exit(1);
       });
       app.ready.then(() => {
-        console.log(`\n  Queue demo →  http://localhost:${port}`);
+        console.log(pub ? `\n  Queue public demo → ${process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : `port ${port}`} (resets every ${resetHours}h)` : `\n  Queue demo →  http://localhost:${port}`);
         console.log('  🎭 Sample account and content. Nothing here ever posts anywhere.');
         console.log('  Dates refresh every time you start it. Ctrl+C to stop.\n');
       });

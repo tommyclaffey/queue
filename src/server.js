@@ -214,6 +214,10 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
   //  • Non-GET requests need our custom header, which other websites can't send
   //    without a CORS preflight — and we never approve preflights.
   const allowedHost = (h) => /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(h || '');
+  // The public demo (its own link on Railway): anyone may look around. Nothing posts anyway, but
+  // anything that costs real CPU or disk (uploads, re-encodes, quality measuring) is switched off.
+  const publicDemo = !!demo?.public;
+  const DEMO_FULL = 80; // posts — the demo resets itself every few hours
   const allowedOrigin = (o) => !o || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o);
 
   // ---- Hosted mode (Railway etc.): on the public internet, so everything except the sign-in
@@ -241,11 +245,11 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
     const [, api, resource, id, action, sub] = url.pathname.split('/');
     // Instagram downloads staged videos from /v/<256-bit token>/… — no session, token only.
     if (hosted && files?.embedded && url.pathname.startsWith('/v/')) return files.handle(req, res);
-    if (!hosted && !allowedHost(req.headers.host)) {
+    if (!hosted && !publicDemo && !allowedHost(req.headers.host)) {
       res.writeHead(403);
       return res.end('Forbidden');
     }
-    if (req.method !== 'GET' && (req.headers['x-queue'] !== '1' || !(hosted ? sameOrigin(req) : allowedOrigin(req.headers.origin)))) {
+    if (req.method !== 'GET' && (req.headers['x-queue'] !== '1' || !(hosted || publicDemo ? sameOrigin(req) : allowedOrigin(req.headers.origin)))) {
       return send(res, 403, { error: 'Forbidden' });
     }
     const me = userOf(req);
@@ -375,8 +379,9 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       // What the demo pretends is connected. The real app only knows Instagram.
       if (req.method === 'GET' && resource === 'extras') {
         let photos = [];
-        if (demo?.assetsDir) try { photos = readdirSync(demo.assetsDir).filter((f) => /\.jpe?g$/i.test(f) && f !== demo.account.avatar).sort(); } catch {}
-        return send(res, 200, demo ? { demo: true, account: demo.account, platforms: demo.platforms, photos } : { demo: false, account: null, platforms: null, photos: [] });
+        // Sample photos for the composer: not the brand mark or the team's profile pictures.
+        if (demo?.assetsDir) try { photos = readdirSync(demo.assetsDir).filter((f) => /\.jpe?g$/i.test(f) && f !== demo.account.avatar && !/^(team-|avatar\.)/.test(f)).sort(); } catch {}
+        return send(res, 200, demo ? { demo: true, public: publicDemo, resetHours: demo.resetHours || null, account: demo.account, platforms: demo.platforms, team: demo.team || null, activity: demo.activity || [], photos } : { demo: false, account: null, platforms: null, team: null, activity: [], photos: [] });
       }
 
       // Your recent Instagram posts (including ones made in other apps), to pick for a benchmark.
@@ -413,6 +418,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
           return send(res, 200, { ok: true });
         }
         if (action === 'entries' && req.method === 'POST') {
+          if (publicDemo) return send(res, 400, { error: 'Adding results is switched off in the public demo.' });
           // Either { clip, route, mediaId } as JSON (pulled from Instagram), or the downloaded
           // video as the request body with ?clip=&route= (for posts Instagram won't hand over).
           const isJson = (req.headers['content-type'] || '').includes('application/json');
@@ -443,6 +449,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       if (resource === 'quality') {
         if (req.method === 'GET' && !id) return send(res, 200, { comparisons: readQuality() });
         if (req.method === 'POST' && id && action === 'measure') {
+          if (publicDemo) return send(res, 400, { error: 'Measuring is switched off in the public demo. Every posted clip here already has its score.' });
           const post = queue.get(id);
           if (!post) return send(res, 404, { error: 'No post with that id.' });
           return send(res, 200, { comparison: await measure(post) });
@@ -456,7 +463,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         if (!['photos', 'story'].includes(kind)) return send(res, 400, { error: 'Unknown post type.' });
         const imgs = images.map((n) => basename(String(n))).filter((n) => safeIn(demo.assetsDir, n));
         if (!imgs.length) return send(res, 400, { error: 'Pick at least one photo.' });
-        const post = queue.add({ file: null, caption, publishAt: validTime(at), kind, images: imgs, platforms, destinations: platforms.map((p) => ({ platform: p, format: kind === 'story' ? 'Story' : 'Carousel', status: 'queued' })) });
+        const post = queue.add({ file: null, caption, publishAt: validTime(at), kind, images: imgs, platforms, destinations: platforms.map((p) => ({ platform: p, format: kind === 'story' ? 'Story' : 'Carousel', status: 'queued' })), by: demo.team?.you || null });
         return send(res, 200, { post });
       }
 
@@ -567,6 +574,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       }
 
       if (req.method === 'POST' && resource === 'upload') {
+        if (publicDemo) { req.resume(); return send(res, 400, { error: 'Uploads are off in the public demo. Pick a video from the Library instead.' }); }
         const original = basename(url.searchParams.get('name') || 'video.mp4').replace(/[^\w.\- ]/g, '_')
           .replace(/\.photo(-[\w]+)?(\.jpe?g)$/i, '_photo$1$2').replace(/\.(conformed|sdr)(\.mp4)$/i, '_$1$2'); // never look like one of Queue's own copies
         const name = `${Date.now()}-${original}`;
@@ -594,6 +602,9 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         }
       }
 
+      if (req.method === 'POST' && (resource === 'schedule' || (resource === 'demo' && id === 'post')) && publicDemo && queue.posts.length >= DEMO_FULL) {
+        return send(res, 429, { error: 'The demo is full. It resets itself every few hours.' });
+      }
       if (req.method === 'POST' && resource === 'schedule') {
         const { name, at, caption = '', coverOffsetMs, platforms, kind, images } = await readJson(req);
         // Photos (one photo or a carousel) and stories. Instagram only, by temporary link.
@@ -622,13 +633,15 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         const { info, result } = await summarizeAsync(file);
         if (result.needsTrim) return send(res, 400, { error: 'Duration is out of range. Trim it in your editor.' });
         const cover = validCover(coverOffsetMs, info.durationSec);
-        const ready = await conformAsync(info, result.plan, SPEC);
-        const recheck = preflight(await probeAsync(ready), SPEC);
+        // Public demo: no re-encoding on the server. It uses the fixed copy if one exists, else the original.
+        const fixedCopy = (tag) => fileIn(mediaDir, basename(file).replace(/\.[^.]+$/, `.${tag}.mp4`));
+        const ready = publicDemo ? (result.plan === 'none' ? file : fixedCopy('conformed') || fixedCopy('sdr.conformed') || fixedCopy('sdr') || file) : await conformAsync(info, result.plan, SPEC);
+        const recheck = publicDemo ? { ok: true } : preflight(await probeAsync(ready), SPEC);
         if (!recheck.ok) return send(res, 400, { error: 'Still failing after the fix: ' + recheck.issues.map((i) => i.msg).join('; ') });
 
         const FORMAT = { instagram: 'Reel', youtubeshorts: 'Short', tiktok: 'Video', facebook: 'Reel', linkedin: 'Video' };
         const dests = demo && Array.isArray(platforms) && platforms.length ? platforms.filter((p) => FORMAT[p]) : ['instagram'];
-        const post = queue.add({ file: ready, caption, publishAt: when, coverOffsetMs: cover, fix: result.plan, source: basename(file), platforms: dests, destinations: demo ? dests.map((p) => ({ platform: p, format: FORMAT[p], status: 'queued' })) : null });
+        const post = queue.add({ file: ready, caption, publishAt: when, coverOffsetMs: cover, fix: result.plan, source: basename(file), platforms: dests, destinations: demo ? dests.map((p) => ({ platform: p, format: FORMAT[p], status: 'queued' })) : null, by: demo?.team?.you || null });
         return send(res, 200, { post: pub(post), fixed: result.plan });
       }
 

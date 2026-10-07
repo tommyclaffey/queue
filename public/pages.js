@@ -7,7 +7,7 @@
 function timelineEntry(msg, p) {
   const m = (re) => re.exec(msg);
   let x;
-  if (msg === 'queued') return ['Scheduled', 'From the web app'];
+  if (msg === 'queued') { const who = member(p.by); return ['Scheduled', who ? `By ${who.name} · ${who.title}` : 'From the web app']; }
   if ((x = m(/^prepared: (.+)$/))) return ['Checked & prepared', x[1] === 'none' ? 'No fixes needed — shipped untouched' : PLAN_TEXT[x[1]] ? `${PLAN_TEXT[x[1]][0]} — ${PLAN_TEXT[x[1]][1].toLowerCase()}` : x[1]];
   if (msg.startsWith('staged')) return ['Sent to Instagram', p.meta ? `Instagram downloaded the prepared file (${fmtBytes(p.meta.bytes)}) from a temporary link` : 'Uploaded ahead of time so it is processed on time'];
   if (msg === 'Instagram finished processing') return ['Processed by Instagram', 'Temporary link closed · ready to go live'];
@@ -50,7 +50,9 @@ VIEWS.post = async (c, id) => {
 
   // ---- left: the post itself
   const media = p.images?.length ? carousel(p.images, 'detail-media') : (() => { const v = el('video', { class: 'detail-media', src: p.media ? `/media/${encodeURIComponent(p.media)}` : '', muted: true, autoplay: true, loop: true, playsInline: true }); v.muted = true; return v; })();
-  const left = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'detail-frame' }, media), el('div', {}, pill(s)), p.permalink ? el('a', { class: 'small faint link', href: p.permalink, target: '_blank', rel: 'noopener' }, p.permalink.replace(/^https?:\/\/(www\.)?/, '').slice(0, 34) + '…') : el('div', { class: 'small faint' }, postMeta(p)));
+  const by = member(p.by);
+  const left = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'detail-frame' }, media), el('div', {}, pill(s)),
+    by ? el('div', { class: 'row by-line', style: 'gap:8px' }, avatarEl(by, 'av-sm'), el('div', { class: 'small' }, el('span', { class: 'muted' }, 'Scheduled by '), el('b', { style: 'font-weight:600' }, by.name))) : null, p.permalink ? el('a', { class: 'small faint link', href: p.permalink, target: '_blank', rel: 'noopener' }, p.permalink.replace(/^https?:\/\/(www\.)?/, '').slice(0, 34) + '…') : el('div', { class: 'small faint' }, postMeta(p)));
 
   // ---- middle: destinations + what happened
   const dests = el('div', { class: 'card flush' }, el('div', { class: 'row', style: 'padding:16px 18px 6px' }, el('h2', { class: 'h3' }, 'Destinations')));

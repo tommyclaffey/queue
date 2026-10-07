@@ -9,7 +9,7 @@ import { startServer } from '../src/server.js';
 import { Queue } from '../src/queue.js';
 import { InstagramClient } from '../src/instagram.js';
 import { timeline } from '../src/quality.js';
-import { DEMO_ACCOUNT, DEMO_PLATFORMS } from '../src/demo.js';
+import { DEMO_ACCOUNT, DEMO_PLATFORMS, DEMO_TEAM } from '../src/demo.js';
 import { tmp, cleanup, makeVideo } from './helpers.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,9 +22,9 @@ before(async () => {
   multiSrc = makeVideo(dir, 'multi.mp4');
   const assets = join(dir, 'assets');
   mkdirSync(assets);
-  for (const n of ['avatar', 'drums', 'latte']) execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=gray:s=64x96', '-frames:v', '1', join(assets, `${n}.jpg`)]);
+  for (const n of ['harbor-logo', 'team-maya', 'drums', 'latte']) execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=gray:s=64x96', '-frames:v', '1', join(assets, `${n}.jpg`)]);
   queue = new Queue(join(dir, 'queue.json'));
-  app = startServer({ root: ROOT, mediaDir: join(dir, 'media'), dataDir: join(dir, 'data'), queue, ig: new InstagramClient({ login: 'instagram', dryRun: true }), port: 0, tickMs: 100, log: () => {}, demo: { account: DEMO_ACCOUNT, platforms: DEMO_PLATFORMS, assetsDir: assets } });
+  app = startServer({ root: ROOT, mediaDir: join(dir, 'media'), dataDir: join(dir, 'data'), queue, ig: new InstagramClient({ login: 'instagram', dryRun: true }), port: 0, tickMs: 100, log: () => {}, demo: { account: DEMO_ACCOUNT, platforms: DEMO_PLATFORMS, team: DEMO_TEAM, assetsDir: assets } });
   await app.ready;
   base = `http://127.0.0.1:${app.port()}`;
 });
@@ -40,10 +40,13 @@ const waitFor = async (fn, ms = 5000) => { const end = Date.now() + ms; while (D
 test('status and extras describe the sample account', async () => {
   const st = (await api('/api/status')).body;
   assert.equal(st.demo, true);
-  assert.equal(st.account, 'tommyclaffey');
+  assert.equal(st.account, 'harborcollective');
   const ex = (await api('/api/extras')).body;
   assert.equal(ex.platforms.tiktok.state, 'drafts');
-  assert.deepEqual(ex.photos, ['drums.jpg', 'latte.jpg'], 'photos list leaves out the avatar');
+  assert.deepEqual(ex.photos, ['drums.jpg', 'latte.jpg'], 'photos list leaves out the brand mark and team pictures');
+  assert.equal(ex.team.you, 'maya');
+  assert.ok(ex.team.members.length >= 5 && ex.team.members.every((m) => m.name && m.role), 'a made-up team with names and roles');
+  assert.equal(ex.public, false);
   assert.equal((await fetch(base + '/demo-assets/drums.jpg')).status, 200);
   assert.notEqual((await fetch(base + '/demo-assets/..%2F..%2Fpackage.json')).status, 200);
 });
@@ -83,4 +86,39 @@ test('quality timeline buckets frames and finds the worst moment', () => {
   assert.equal(worstAt, 5);
   assert.ok(series.some((x) => x.vmaf < 95));
   assert.deepEqual(timeline([], 30), { series: [], worstAt: null });
+});
+
+test('posts scheduled in the demo are credited to the signed-in teammate', async () => {
+  const r = await api('/api/demo/post', json('POST', { kind: 'photos', images: ['drums.jpg', 'latte.jpg'], at: new Date(Date.now() + 9e6).toISOString(), platforms: ['instagram'] }));
+  assert.equal(r.status, 200);
+  assert.equal(queue.get(r.body.post.id).by, 'maya');
+});
+
+// The shareable demo on its own public link: open to every host, but anything that costs CPU or disk is off.
+test('public demo: any host can view it; uploads, measuring and cross-site writes are refused', async () => {
+  const d = tmp();
+  const assets = join(d, 'assets'); mkdirSync(assets);
+  execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=gray:s=64x96', '-frames:v', '1', join(assets, 'drums.jpg')]);
+  const q = new Queue(join(d, 'queue.json'));
+  const pub = startServer({ root: ROOT, mediaDir: join(d, 'media'), dataDir: join(d, 'data'), queue: q, ig: new InstagramClient({ login: 'instagram', dryRun: true }), port: 0, tickMs: 100, log: () => {}, demo: { account: DEMO_ACCOUNT, platforms: DEMO_PLATFORMS, team: DEMO_TEAM, assetsDir: assets, public: true, resetHours: 3 } });
+  await pub.ready;
+  const port = pub.port();
+  const { request } = await import('node:http');
+  const call = (method, path, headers = {}, body = null) => new Promise((resolve, reject) => {
+    const r = request({ host: '127.0.0.1', port, method, path, headers: { Host: 'queue-demo.example.app', ...headers } }, (res) => { let b = ''; res.on('data', (c) => (b += c)); res.on('end', () => resolve({ status: res.statusCode, body: b })); });
+    r.on('error', reject); if (body) r.write(body); r.end();
+  });
+  try {
+    assert.equal((await call('GET', '/')).status, 200, 'a public hostname is allowed');
+    const ex = JSON.parse((await call('GET', '/api/extras')).body);
+    assert.equal(ex.public, true); assert.equal(ex.resetHours, 3);
+    const same = { 'X-Queue': '1', Origin: 'https://queue-demo.example.app' };
+    const up = await call('POST', '/api/upload?name=a.mp4', same, 'x');
+    assert.equal(up.status, 400); assert.match(up.body, /Uploads are off/);
+    assert.match((await call('POST', '/api/quality/abc/measure', same)).body, /switched off/);
+    const cross = await call('POST', '/api/upload?name=a.mp4', { 'X-Queue': '1', Origin: 'https://evil.example' }, 'x');
+    assert.equal(cross.status, 403, 'another website cannot write to the demo');
+    const ok = await call('POST', '/api/demo/post', { ...same, 'Content-Type': 'application/json' }, JSON.stringify({ kind: 'story', images: ['drums.jpg'], at: new Date(Date.now() + 9e6).toISOString(), platforms: ['instagram'] }));
+    assert.equal(ok.status, 200, 'looking around and scheduling still works');
+  } finally { await pub.stop(); cleanup(d); }
 });
