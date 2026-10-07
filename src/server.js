@@ -380,7 +380,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       if (req.method === 'GET' && resource === 'extras') {
         let photos = [];
         // Sample photos for the composer: not the brand mark or the team's profile pictures.
-        if (demo?.assetsDir) try { photos = readdirSync(demo.assetsDir).filter((f) => /\.jpe?g$/i.test(f) && f !== demo.account.avatar && !/^(team-|avatar\.)/.test(f)).sort(); } catch {}
+        if (demo?.assetsDir) try { photos = readdirSync(demo.assetsDir).filter((f) => !f.startsWith('.') && /\.jpe?g$/i.test(f) && f !== demo.account.avatar && !/^(team-|avatar\.)/.test(f)).sort(); } catch {}
         return send(res, 200, demo ? { demo: true, public: publicDemo, resetHours: demo.resetHours || null, account: demo.account, platforms: demo.platforms, team: demo.team || null, activity: demo.activity || [], photos } : { demo: false, account: null, platforms: null, team: null, activity: [], photos: [] });
       }
 
