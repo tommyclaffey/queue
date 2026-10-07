@@ -39,26 +39,34 @@ const VIDEOS = [
   ['drums-story.mp4', 'drums', 10, 'clean', 'in'],
 ];
 
-// A made-up business, so the demo can be shared publicly: a café + creative space that runs a
-// run club, open mics and worship nights. The team's photos are from Unsplash (demo/assets/credits.json).
-export const DEMO_ACCOUNT = { username: 'harborcollective', name: 'Harbor Collective', kind: 'Business', avatar: 'harbor-logo.jpg' };
+// A made-up social media studio, so the demo can be shared publicly and shows who Queue is for:
+// it runs five accounts — a creator, a business, a church, a band and a nonprofit. Every name is
+// invented. Photos are from Unsplash, logos drawn for the demo (demo/assets/credits.json).
+export const DEMO_ACCOUNT = { username: 'northlinesocial', name: 'Northline Social', kind: 'Studio', avatar: 'northline-logo.jpg' };
+export const DEMO_BRANDS = [
+  { id: 'jess', name: 'Jess Rivera', handle: 'jessruns', type: 'Creator', avatar: 'brand-jess.jpg' },
+  { id: 'harbor', name: 'Harbor Coffee', handle: 'harborcoffee', type: 'Business', avatar: 'brand-harbor.jpg' },
+  { id: 'grace', name: 'Grace City Church', handle: 'gracecity', type: 'Church', avatar: 'brand-gracecity.jpg' },
+  { id: 'tides', name: 'The Low Tides', handle: 'thelowtides', type: 'Band', avatar: 'brand-lowtides.jpg' },
+  { id: 'riverside', name: 'Riverside Arts', handle: 'riversidearts', type: 'Nonprofit', avatar: 'brand-riverside.jpg' },
+];
 export const DEMO_TEAM = {
   you: 'maya',
   members: [
-    { id: 'maya', name: 'Maya Torres', title: 'Founder', role: 'Owner', email: 'maya@harborcollective.co', avatar: 'team-maya.jpg', activeMin: 0 },
-    { id: 'jordan', name: 'Jordan Ellis', title: 'Content lead', role: 'Admin', email: 'jordan@harborcollective.co', avatar: 'team-jordan.jpg', activeMin: 12 },
-    { id: 'sofia', name: 'Sofia Ramos', title: 'Video editor', role: 'Editor', email: 'sofia@harborcollective.co', avatar: 'team-sofia.jpg', activeMin: 95 },
-    { id: 'marcus', name: 'Marcus Reed', title: 'Events & community', role: 'Editor', email: 'marcus@harborcollective.co', avatar: 'team-marcus.jpg', activeMin: 60 * 26 },
-    { id: 'sam', name: 'Sam Haddad', title: 'Barista · run club captain', role: 'Contributor', email: 'sam@harborcollective.co', avatar: 'team-sam.jpg', activeMin: 60 * 50 },
+    { id: 'maya', name: 'Maya Torres', title: 'Founder', role: 'Owner', email: 'maya@northline.social', avatar: 'team-maya.jpg', activeMin: 0 },
+    { id: 'jordan', name: 'Jordan Ellis', title: 'Content lead', role: 'Admin', email: 'jordan@northline.social', avatar: 'team-jordan.jpg', activeMin: 12 },
+    { id: 'sofia', name: 'Sofia Ramos', title: 'Video editor', role: 'Editor', email: 'sofia@northline.social', avatar: 'team-sofia.jpg', activeMin: 95 },
+    { id: 'marcus', name: 'Marcus Reed', title: 'Community manager', role: 'Editor', email: 'marcus@northline.social', avatar: 'team-marcus.jpg', activeMin: 60 * 26 },
+    { id: 'sam', name: 'Sam Haddad', title: 'Social coordinator', role: 'Contributor', email: 'sam@northline.social', avatar: 'team-sam.jpg', activeMin: 60 * 50 },
     { id: 'ellie', name: 'Ellie Park', title: 'Photographer (freelance)', role: 'Viewer', email: 'ellie.park.photo@gmail.com', avatar: null, invited: true },
   ],
 };
 export const DEMO_PLATFORMS = {
-  instagram: { state: 'connected', handle: '@harborcollective · Business' },
-  youtube: { state: 'connected', handle: 'Harbor Collective' },
-  facebook: { state: 'connected', handle: 'Harbor Collective (Page)' },
-  tiktok: { state: 'drafts', handle: '@harborcollective' },
-  linkedin: { state: 'connected', handle: 'Harbor Collective · Company page', note: 'Key renews in 41d' },
+  instagram: { state: 'connected', handle: '5 accounts · @jessruns, @harborcoffee +3' },
+  youtube: { state: 'connected', handle: '4 channels' },
+  facebook: { state: 'connected', handle: '3 Pages' },
+  tiktok: { state: 'drafts', handle: '4 accounts' },
+  linkedin: { state: 'connected', handle: '2 company pages', note: 'Key renews in 41d' },
   threads: { state: 'available' },
   pinterest: { state: 'available' },
   bluesky: { state: 'available' },
@@ -69,10 +77,10 @@ export const DEMO_PLATFORMS = {
 export function demoActivity(posts, now = Date.now()) {
   const cap = (id) => (posts.find((p) => p.id === id)?.caption || '').split(/[.!?:]/)[0].slice(0, 48);
   const rows = [
-    ['jordan', 'scheduled', 'd01', 12], ['sofia', 'fixed the HDR on', 'd05', 95], ['sam', 'scheduled', 'd09', 60 * 5],
+    ['jordan', 'scheduled', 'd01', 12], ['sofia', 'scheduled', 'd20', 40], ['sofia', 'fixed the HDR on', 'd05', 95], ['sam', 'scheduled', 'd03', 60 * 5],
     ['marcus', 'moved', 'd04', 60 * 26], ['maya', 'invited Ellie Park as a Viewer', null, 60 * 30], ['jordan', 'posted', 'd06', 60 * 46],
   ];
-  return rows.map(([who, verb, postId, mins]) => ({ who, verb, postId, caption: postId ? cap(postId) : null, at: new Date(now - mins * 60e3).toISOString() }));
+  return rows.map(([who, verb, postId, mins]) => ({ who, verb, postId, brand: postId ? posts.find((p) => p.id === postId)?.brand || null : null, caption: postId ? cap(postId) : null, at: new Date(now - mins * 60e3).toISOString() }));
 }
 
 async function makeVideo(assets, media, [name, photo, secs, format, motion]) {
@@ -137,32 +145,35 @@ function seedPosts(media, assets) {
       permalink: status === 'published' ? 'https://www.instagram.com/' : null, attempts: status === 'failed' ? 3 : 0,
       error: status === 'failed' ? "Instagram couldn't process the video" : status === 'missed' ? `Missed its ${new Date(publishAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} slot by 5h (Mac off or asleep). Post now, pick a new time, or remove it.` : null,
       ...(status === 'published' ? { publishedAt: new Date(new Date(publishAt).getTime() + 12e3).toISOString() } : {}),
-      platforms, destinations: platforms.map(dest), log, by: BY[id] || 'maya', ...extra,
+      platforms, destinations: platforms.map(dest), log, by: BY[id] || 'maya', brand: BRAND[id] || null, ...extra,
     };
   };
-  // Who on the team scheduled each post.
-  const BY = { d01: 'jordan', d02: 'sam', d03: 'sam', d04: 'marcus', d05: 'sofia', d06: 'jordan', d07: 'marcus', d08: 'sofia', d09: 'sam', d10: 'marcus', d11: 'sofia', d12: 'jordan', d13: 'maya', d14: 'marcus', d15: 'sam', d16: 'jordan', d17: 'sam', d18: 'jordan' };
+  // Who on the team scheduled each post, and which of the studio's accounts it's for.
+  const BY = { d01: 'jordan', d02: 'sam', d03: 'sam', d04: 'marcus', d05: 'sofia', d06: 'jordan', d07: 'marcus', d08: 'sofia', d09: 'sam', d10: 'marcus', d11: 'sofia', d12: 'jordan', d13: 'maya', d14: 'marcus', d15: 'sam', d16: 'jordan', d17: 'sam', d18: 'jordan', d19: 'marcus', d20: 'sofia' };
+  const BRAND = { d01: 'grace', d02: 'harbor', d03: 'jess', d04: 'riverside', d05: 'harbor', d06: 'harbor', d07: 'grace', d08: 'harbor', d09: 'harbor', d10: 'grace', d11: 'jess', d12: 'tides', d13: 'jess', d14: 'tides', d15: 'jess', d16: 'harbor', d17: 'jess', d18: 'tides', d19: 'riverside', d20: 'tides' };
   const P = [
-    post('d01', 'worship-night.mov', 'Worship night highlights 🙌 Grateful for this room and everyone who showed up. Full set on the channel. #worshipnight #harborcollective', later(2.5), 'ready', ['instagram', 'youtubeshorts', 'tiktok', 'facebook', 'linkedin'], 'hdr'),
+    post('d01', 'worship-night.mov', 'Worship night highlights 🙌 Grateful for everyone who showed up. Full set on our channel. #worshipnight', later(2.5), 'ready', ['instagram', 'youtubeshorts', 'tiktok', 'facebook', 'linkedin'], 'hdr'),
     post('d02', 'coffee-bts.mp4', 'Behind the bar: our new espresso setup ☕', later(5), 'staged', ['instagram', 'tiktok'], 'remux'),
-    post('d03', 'marathon-wk6.mov', 'Run club: marathon training week 6 🏃 Saturdays, 7am, from the front door', at(1, 12), 'queued', ['youtubeshorts', 'instagram'], 'none'),
-    post('d04', 'open-mic.mp4', 'Open mic night: Dev\'s airport bit finally landed 😂 Sign-ups for next Thursday are open', at(1, 19, 15), 'queued', ['tiktok', 'instagram', 'youtubeshorts'], 'audio-only'),
+    post('d03', 'marathon-wk6.mov', 'Marathon training week 6 🏃‍♀️ the long run, the fuel, the wall', at(1, 12), 'queued', ['youtubeshorts', 'instagram'], 'none'),
+    post('d04', 'open-mic.mp4', "Open mic night at Riverside: Dev's airport bit finally landed 😂 Sign-ups for next Thursday are open", at(1, 19, 15), 'queued', ['tiktok', 'instagram', 'youtubeshorts'], 'audio-only'),
     post('d05', 'pour-over-60.mov', 'Pour-over recipe in 60 seconds', at(2, 8), 'queued', ['instagram', 'tiktok', 'youtubeshorts', 'facebook'], 'hdr'),
-    post('d06', 'weekly-recap.mp4', 'This week at Harbor', at(-2, 18, 30), 'published', ['instagram', 'linkedin', 'facebook'], 'none'),
-    post('d07', 'sunday-recap.mov', 'Sunday recap: worship night', at(-3, 18, 30), 'missed', ['instagram', 'facebook'], 'none'),
+    post('d06', 'weekly-recap.mp4', 'This week at Harbor Coffee', at(-2, 18, 30), 'published', ['instagram', 'linkedin', 'facebook'], 'none'),
+    post('d07', 'sunday-recap.mov', 'Sunday recap', at(-3, 18, 30), 'missed', ['instagram', 'facebook'], 'none'),
     post('d08', 'pour-over-60.mov', 'Pour-over recipe (v1)', at(-1, 12), 'failed', ['instagram', 'tiktok'], 'hdr'),
     post('d09', 'latte-fails.mp4', 'Latte art fails compilation ☕😅', at(10, 8), 'queued', ['instagram', 'tiktok'], 'none'),
-    post('d10', 'youth-night.mov', 'Youth night recap: thanks for packing the back room', at(13, 18, 30), 'queued', ['instagram', 'facebook'], 'none'),
+    post('d10', 'youth-night.mov', 'Youth night recap: thanks for packing the room', at(13, 18, 30), 'queued', ['instagram', 'facebook'], 'none'),
     post('d11', 'camera-test.mp4', 'New camera test: FX3 + 35mm, straight out of camera', at(-5, 18, 30), 'published', ['youtubeshorts', 'instagram'], 'none'),
-    post('d12', 'friday-crew.mp4', 'Friday night with the Harbor crew', at(-7, 20), 'published', ['instagram', 'tiktok', 'facebook'], 'none'),
-    post('d15', 'marathon-wk6.mov', 'Run club long run: 16 miles, then pastries', at(-9, 7, 30), 'published', ['instagram'], 'none'),
+    post('d12', 'friday-crew.mp4', 'Friday night with the crew after load-out', at(-7, 20), 'published', ['instagram', 'tiktok', 'facebook'], 'none'),
+    post('d15', 'marathon-wk6.mov', 'Long run recap: 16 miles', at(-9, 7, 30), 'published', ['instagram'], 'none'),
     post('d16', 'coffee-bts.mp4', 'Coffee corner tour', at(-12, 12), 'published', ['instagram', 'tiktok'], 'remux'),
-    post('d17', 'latte-fails.mp4', 'Latte art progress — week 3', at(17, 9), 'queued', ['instagram'], 'none'),
-    post('d18', 'youth-night.mov', 'Youth night worship set', at(20, 18, 30), 'queued', ['instagram', 'youtubeshorts'], 'none'),
+    post('d17', 'race-morning.mov', 'Race morning routine, start to start line', at(17, 9), 'queued', ['instagram', 'youtubeshorts'], 'none'),
+    post('d18', 'youth-night.mov', 'Tour diary, night 3: you were LOUD 🔊', at(20, 18, 30), 'queued', ['instagram', 'youtubeshorts'], 'none'),
+    post('d19', 'q-and-a.mov', "Artist Q&A: this month's resident muralist", at(4, 12), 'queued', ['instagram', 'youtubeshorts', 'linkedin'], 'reencode'),
+    post('d20', 'drums-story.mp4', 'New single "Undertow" out Friday 🌊 Pre-save, link in bio', at(5, 18), 'queued', ['instagram', 'tiktok', 'youtubeshorts'], 'none'),
   ];
   // Photo carousel + story — only the demo knows these formats so far.
   const img = (n) => (existsSync(join(assets, `${n}.jpg`)) ? `${n}.jpg` : null);
-  P.push({ ...post('d13', null, 'A week at Harbor in 6 frames 📸 worship night, the long run, open mic and too much coffee.', at(2, 9), 'queued', ['instagram', 'tiktok', 'linkedin', 'facebook'], 'none'), kind: 'photos', images: ['worship', 'runner', 'mic', 'latte', 'pourover', 'city'].map(img).filter(Boolean) });
+  P.push({ ...post('d13', null, 'My week in 6 frames 📸 long runs, a trail sunrise, a new lens and too much coffee.', at(2, 9), 'queued', ['instagram', 'tiktok', 'facebook'], 'none'), kind: 'photos', images: ['runner', 'trail', 'camera', 'city', 'latte', 'airport'].map(img).filter(Boolean) });
   P.push({ ...post('d14', null, "Tonight's show 🥁", at(3, 21), 'queued', ['instagram', 'facebook'], 'none'), kind: 'story', images: ['drums', 'concert', 'youth'].map(img).filter(Boolean) });
   for (const p of P) if (p.kind !== 'reel') p.destinations = p.platforms.map((pl) => ({ platform: pl, format: p.kind === 'story' ? 'Story' : pl === 'instagram' ? 'Carousel' : pl === 'tiktok' ? 'Photo post' : pl === 'linkedin' ? 'Multi-image' : 'Multi-photo', status: 'queued' }));
   return P;
@@ -209,7 +220,7 @@ export async function buildDemo(root, { log = console.log } = {}) {
   writeFileSync(join(data, 'queue.json'), JSON.stringify(posts, null, 1));
   const now = Date.now();
   const team = { ...DEMO_TEAM, members: DEMO_TEAM.members.map(({ activeMin, ...m }) => ({ ...m, lastActive: activeMin == null ? null : new Date(now - activeMin * 60e3).toISOString() })) };
-  writeFileSync(join(data, 'demo.json'), JSON.stringify({ account: DEMO_ACCOUNT, platforms: DEMO_PLATFORMS, team, activity: demoActivity(posts, now) }, null, 1));
+  writeFileSync(join(data, 'demo.json'), JSON.stringify({ account: DEMO_ACCOUNT, platforms: DEMO_PLATFORMS, brands: DEMO_BRANDS, team, activity: demoActivity(posts, now) }, null, 1));
 
   // Real measurements, cached by the clip's size so a rebuilt video is re-measured.
   const qfile = join(data, 'quality.json');

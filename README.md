@@ -87,8 +87,11 @@ re-encoded the way the platform would serve it, then measured with the same code
 
 ### Public demo (its own link)
 
-The demo is a made-up business, **Harbor Collective** (a café + creative space), with a made-up
-team: profile photos, roles, who scheduled each post, and team activity. Team photos are from
+The demo is a made-up social media studio, **Northline Social**, running five made-up accounts so
+it shows everyone Queue is for: a creator (Jess Rivera), a business (Harbor Coffee), a church
+(Grace City), a band (The Low Tides) and a nonprofit (Riverside Arts). Switch between them from the
+account card in the sidebar. A made-up team: profile photos, roles, who scheduled each post, and
+team activity. Team photos are from
 Unsplash (`demo/assets/credits.json`).
 
 `DEMO_PUBLIC=1 npm run demo` serves it to everyone on `$PORT`. Nothing can post (there is no

@@ -9,7 +9,7 @@ import { startServer } from '../src/server.js';
 import { Queue } from '../src/queue.js';
 import { InstagramClient } from '../src/instagram.js';
 import { timeline } from '../src/quality.js';
-import { DEMO_ACCOUNT, DEMO_PLATFORMS, DEMO_TEAM } from '../src/demo.js';
+import { DEMO_ACCOUNT, DEMO_PLATFORMS, DEMO_TEAM, DEMO_BRANDS } from '../src/demo.js';
 import { tmp, cleanup, makeVideo } from './helpers.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,9 +22,9 @@ before(async () => {
   multiSrc = makeVideo(dir, 'multi.mp4');
   const assets = join(dir, 'assets');
   mkdirSync(assets);
-  for (const n of ['harbor-logo', 'team-maya', 'drums', 'latte']) execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=gray:s=64x96', '-frames:v', '1', join(assets, `${n}.jpg`)]);
+  for (const n of ['northline-logo', 'brand-jess', 'team-maya', 'drums', 'latte']) execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=gray:s=64x96', '-frames:v', '1', join(assets, `${n}.jpg`)]);
   queue = new Queue(join(dir, 'queue.json'));
-  app = startServer({ root: ROOT, mediaDir: join(dir, 'media'), dataDir: join(dir, 'data'), queue, ig: new InstagramClient({ login: 'instagram', dryRun: true }), port: 0, tickMs: 100, log: () => {}, demo: { account: DEMO_ACCOUNT, platforms: DEMO_PLATFORMS, team: DEMO_TEAM, assetsDir: assets } });
+  app = startServer({ root: ROOT, mediaDir: join(dir, 'media'), dataDir: join(dir, 'data'), queue, ig: new InstagramClient({ login: 'instagram', dryRun: true }), port: 0, tickMs: 100, log: () => {}, demo: { account: DEMO_ACCOUNT, platforms: DEMO_PLATFORMS, team: DEMO_TEAM, brands: DEMO_BRANDS, assetsDir: assets } });
   await app.ready;
   base = `http://127.0.0.1:${app.port()}`;
 });
@@ -40,10 +40,11 @@ const waitFor = async (fn, ms = 5000) => { const end = Date.now() + ms; while (D
 test('status and extras describe the sample account', async () => {
   const st = (await api('/api/status')).body;
   assert.equal(st.demo, true);
-  assert.equal(st.account, 'harborcollective');
+  assert.equal(st.account, 'northlinesocial');
   const ex = (await api('/api/extras')).body;
   assert.equal(ex.platforms.tiktok.state, 'drafts');
-  assert.deepEqual(ex.photos, ['drums.jpg', 'latte.jpg'], 'photos list leaves out the brand mark and team pictures');
+  assert.deepEqual(ex.photos, ['drums.jpg', 'latte.jpg'], 'photos list leaves out logos, account pictures and team pictures');
+  assert.deepEqual(ex.brands.map((b) => b.type), ['Creator', 'Business', 'Church', 'Band', 'Nonprofit'], 'the studio runs a mix of accounts, not just one kind');
   assert.equal(ex.team.you, 'maya');
   assert.ok(ex.team.members.length >= 5 && ex.team.members.every((m) => m.name && m.role), 'a made-up team with names and roles');
   assert.equal(ex.public, false);
@@ -88,10 +89,13 @@ test('quality timeline buckets frames and finds the worst moment', () => {
   assert.deepEqual(timeline([], 30), { series: [], worstAt: null });
 });
 
-test('posts scheduled in the demo are credited to the signed-in teammate', async () => {
+test('posts scheduled in the demo are credited to the signed-in teammate and the picked account', async () => {
   const r = await api('/api/demo/post', json('POST', { kind: 'photos', images: ['drums.jpg', 'latte.jpg'], at: new Date(Date.now() + 9e6).toISOString(), platforms: ['instagram'] }));
   assert.equal(r.status, 200);
   assert.equal(queue.get(r.body.post.id).by, 'maya');
+  assert.equal(queue.get(r.body.post.id).brand, 'jess', 'no account picked → the first one');
+  const t = await api('/api/demo/post', json('POST', { kind: 'story', images: ['drums.jpg'], at: new Date(Date.now() + 9e6).toISOString(), platforms: ['instagram'], brand: 'tides' }));
+  assert.equal(queue.get(t.body.post.id).brand, 'tides');
 });
 
 // The shareable demo on its own public link: open to every host, but anything that costs CPU or disk is off.

@@ -27,7 +27,7 @@ const fmtClock = (s) => fmtDur(s ?? 0);
 
 // ================================================================ POST DETAIL
 VIEWS.post = async (c, id) => {
-  const p = S.posts.find((x) => x.id === id);
+  const p = (S.allPosts || S.posts).find((x) => x.id === id); // a link to another account's post still opens
   if (!p) { topbar('Post not found'); c.append(el('div', { class: 'card empty' }, el('div', { class: 'h3' }, 'That post is gone'), el('div', {}, 'It may have been removed.'), el('div', { style: 'margin-top:14px' }, btn('Back to Queue', 'primary', () => (location.hash = '#/queue'))))); return; }
   const s = statusOf(p);
   const plats = platformsOf(p);
@@ -52,7 +52,8 @@ VIEWS.post = async (c, id) => {
   const media = p.images?.length ? carousel(p.images, 'detail-media') : (() => { const v = el('video', { class: 'detail-media', src: p.media ? `/media/${encodeURIComponent(p.media)}` : '', muted: true, autoplay: true, loop: true, playsInline: true }); v.muted = true; return v; })();
   const by = member(p.by);
   const left = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'detail-frame' }, media), el('div', {}, pill(s)),
-    by ? el('div', { class: 'row by-line', style: 'gap:8px' }, avatarEl(by, 'av-sm'), el('div', { class: 'small' }, el('span', { class: 'muted' }, 'Scheduled by '), el('b', { style: 'font-weight:600' }, by.name))) : null, p.permalink ? el('a', { class: 'small faint link', href: p.permalink, target: '_blank', rel: 'noopener' }, p.permalink.replace(/^https?:\/\/(www\.)?/, '').slice(0, 34) + '…') : el('div', { class: 'small faint' }, postMeta(p)));
+    by ? el('div', { class: 'row by-line', style: 'gap:8px' }, avatarEl(by, 'av-sm'), el('div', { class: 'small' }, el('span', { class: 'muted' }, 'Scheduled by '), el('b', { style: 'font-weight:600' }, by.name))) : null,
+    brandOf(p) ? el('div', { class: 'row by-line', style: 'gap:8px' }, avatarEl(brandOf(p), 'av-sm'), el('div', { class: 'small' }, el('span', { class: 'muted' }, 'For '), el('b', { style: 'font-weight:600' }, brandOf(p).name), el('span', { class: 'muted' }, ` · @${brandOf(p).handle}`))) : null, p.permalink ? el('a', { class: 'small faint link', href: p.permalink, target: '_blank', rel: 'noopener' }, p.permalink.replace(/^https?:\/\/(www\.)?/, '').slice(0, 34) + '…') : el('div', { class: 'small faint' }, postMeta(p)));
 
   // ---- middle: destinations + what happened
   const dests = el('div', { class: 'card flush' }, el('div', { class: 'row', style: 'padding:16px 18px 6px' }, el('h2', { class: 'h3' }, 'Destinations')));
@@ -387,7 +388,7 @@ VIEWS.new = (c) => {
 
 // ---------------------------------------------------------------- step 1: choose
 function uploadStep(c) {
-  topbar('New post', 'Step 1 of 2 · Choose what to post', [fmtSeg(), cancelBtn()]);
+  topbar('New post', 'Step 1 of 2 · Choose what to post', [brandPick(), fmtSeg(), cancelBtn()]);
   const input = el('input', { type: 'file', accept: 'video/*', class: 'hidden', on: { change: (e) => e.target.files[0] && doUpload(e.target.files[0]) } });
   const status = el('div', { class: 'muted' }, 'MP4 or MOV · 3 s – 15 min · up to 300 MB · 9:16 looks best');
   const dz = el('div', { class: 'dropzone', role: 'button', tabindex: 0, on: { click: () => input.click(), keydown: (e) => { if (e.key === 'Enter') input.click(); } } },
@@ -439,7 +440,7 @@ function videoComposer(c) {
   const multi = isDemo();
   const label = multi ? `Schedule to ${on.length} platform${on.length === 1 ? '' : 's'}` : 'Schedule Reel';
   const schedBtn = btn(label, 'primary', scheduleVideo, { disabled: up.result.needsTrim || !on.length });
-  topbar('New post', el('span', { class: 'mono small' }, `${shortName(up.name)} · ${fmtDur(up.info.durationSec)} · ${v.width}×${v.height}${hdr ? ' · HDR' : ''}`), [fmtSeg(), cancelBtn(), schedBtn]);
+  topbar('New post', el('span', { class: 'mono small' }, `${shortName(up.name)} · ${fmtDur(up.info.durationSec)} · ${v.width}×${v.height}${hdr ? ' · HDR' : ''}`), [brandPick(), fmtSeg(), cancelBtn(), schedBtn]);
 
   const grid = el('div', { class: 'composer' });
   // preview column
@@ -548,7 +549,7 @@ async function scheduleVideo() {
   // Walk the checklist while the server does the real work.
   timer = setInterval(() => { const barStep = steps.findIndex((s) => s[2]); if (idx === barStep && pct < 92) pct = Math.min(92, pct + 7); else if (idx < steps.length - 2) idx++; draw(); }, 450);
   try {
-    const r = await api('/api/schedule', json('POST', { name: up.name, at: when.toISOString(), caption: C.caption, coverOffsetMs: C.coverMs, platforms: on }));
+    const r = await api('/api/schedule', json('POST', { name: up.name, at: when.toISOString(), caption: C.caption, coverOffsetMs: C.coverMs, platforms: on, brand: postingAs()?.id }));
     clearInterval(timer); idx = steps.length; pct = 100; draw();
     await new Promise((res) => setTimeout(res, 650));
     close(); resetComposer(); toast(`Scheduled for ${fmtWhen(r.post.publishAt)}`);
@@ -594,7 +595,7 @@ function photosComposer(c) {
   if (!C.dests) C.dests = new Set(['instagram', 'tiktok', 'linkedin', 'facebook']);
   const on = PHOTO_DESTS.map(([p]) => p).filter((p) => C.dests.has(p) && canUse(p));
   const n = C.photos.length;
-  topbar('New post', el('span', { class: 'mono small' }, `${n} photo${n === 1 ? '' : 's'} · carousel · 1600×2400 originals`), [fmtSeg(), cancelBtn(), btn(`Schedule to ${on.length} platform${on.length === 1 ? '' : 's'}`, 'primary', () => scheduleDemo('photos', C.photos, on), { disabled: !n || !on.length })]);
+  topbar('New post', el('span', { class: 'mono small' }, `${n} photo${n === 1 ? '' : 's'} · carousel · 1600×2400 originals`), [brandPick(), fmtSeg(), cancelBtn(), btn(`Schedule to ${on.length} platform${on.length === 1 ? '' : 's'}`, 'primary', () => scheduleDemo('photos', C.photos, on), { disabled: !n || !on.length })]);
   if (!['instagram', 'tiktok', 'linkedin', 'facebook'].includes(C.platform)) C.platform = 'instagram';
   const ptabs = el('div', { class: 'ptabs' }, ...['instagram', 'tiktok', 'linkedin', 'facebook'].map((p) => el('button', { class: C.platform === p ? 'on' : '', html: svgLogo(p), title: PNAME[p], 'aria-label': `Preview as ${PNAME[p]}`, 'aria-pressed': String(C.platform === p), on: { click: () => { C.platform = p; render(); } } })));
   const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, uiToggle(render), photoPhone(C.platform, C.photos), el('div', { class: 'preview-note' }, { instagram: "Instagram crops every photo to the first photo's shape. Queue sets 4:5 for the tallest look.", tiktok: 'TikTok shows photos full-screen at 9:16. Queue fits each one with a soft blurred fill.', linkedin: 'LinkedIn shows a grid in the feed, then the full photos when tapped.', facebook: 'Facebook keeps more pixels than Instagram — up to 2048 wide.' }[C.platform]));
@@ -618,8 +619,8 @@ function photoPhone(platform, images) {
   const ph = el('div', { class: 'phone' + (platform === 'linkedin' ? ' light' : '') });
   if (!images.length) { ph.append(el('div', { class: 'ph-empty' }, 'Add photos to preview')); return ph; }
   if (!previewUI) { ph.className = 'phone clean'; ph.append(el('div', { style: 'position:absolute;inset:0' }, carousel(images, 'fill', photoSrc))); return ph; }
-  const me = S.extras?.account?.username || S.status?.account || 'yourname';
-  const av = el('img', { class: 'av', src: S.extras?.account?.avatar ? imgUrl(S.extras.account.avatar) : photoSrc(images[0]), alt: '' });
+  const me = previewName();
+  const av = el('img', { class: 'av', src: previewAvatar() || photoSrc(images[0]), alt: '' });
   if (platform === 'instagram' || platform === 'facebook' || platform === 'linkedin') {
     const ratio = platform === 'instagram' ? '4 / 5' : platform === 'facebook' ? '4 / 5' : '2 / 3';
     ph.append(el('div', { class: 'ph-feed' }, el('div', { class: 'urow', style: `padding:10px 12px;color:${platform === 'linkedin' ? '#191919' : '#fff'}` }, av, me), el('div', { style: `aspect-ratio:${ratio};position:relative;overflow:hidden` }, carousel(images, 'fill', photoSrc)), el('div', { class: 'small', style: `padding:10px 12px;color:${platform === 'linkedin' ? '#191919' : '#fff'};font-size:12px` }, previewCaption(platform, C.caption))));
@@ -635,7 +636,7 @@ function storyComposer(c) {
   if (!C.dests) C.dests = new Set(['instagram', 'facebook']);
   const on = ['instagram', 'facebook'].filter((p) => C.dests.has(p));
   const n = C.frames.length;
-  topbar('New post', el('span', { class: 'mono small' }, `${n} frame${n === 1 ? '' : 's'} · ${n * 5}s total · 9:16`), [fmtSeg(), cancelBtn(), btn(`Schedule to ${on.length} platform${on.length === 1 ? '' : 's'}`, 'primary', () => scheduleDemo('story', C.frames, on), { disabled: !n || !on.length })]);
+  topbar('New post', el('span', { class: 'mono small' }, `${n} frame${n === 1 ? '' : 's'} · ${n * 5}s total · 9:16`), [brandPick(), fmtSeg(), cancelBtn(), btn(`Schedule to ${on.length} platform${on.length === 1 ? '' : 's'}`, 'primary', () => scheduleDemo('story', C.frames, on), { disabled: !n || !on.length })]);
   if (!['instagram', 'facebook'].includes(C.platform)) C.platform = 'instagram';
   const ptabs = el('div', { class: 'ptabs' }, ...['instagram', 'facebook'].map((p) => el('button', { class: C.platform === p ? 'on' : '', html: svgLogo(p), title: PNAME[p], 'aria-label': `Preview as ${PNAME[p]}`, 'aria-pressed': String(C.platform === p), on: { click: () => { C.platform = p; render(); } } })));
   const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, previewToggles(render), storyPhone(C.frames), el('div', { class: 'preview-note' }, 'Tap the preview to step through frames. The top and bottom 14% sit under the story bar and reply box.'));
@@ -656,8 +657,8 @@ function storyPhone(frames) {
   let i = 0;
   const img = el('img', { class: 'story-img', src: photoSrc(frames[0]), alt: '' });
   const bars = el('div', { class: 'story-bars' }, ...frames.map((_, k) => el('i', { class: k === 0 ? 'on' : '' })));
-  const me = S.extras?.account?.username || S.status?.account || 'yourname';
-  if (!previewUI) ph.append(img); else ph.append(img, el('div', { class: 'shade-t' }), bars, el('div', { class: 'story-head' }, el('img', { class: 'av', src: S.extras?.account?.avatar ? imgUrl(S.extras.account.avatar) : photoSrc(frames[0]), alt: '' }), el('b', {}, me), el('span', { class: 'faint-w' }, 'Scheduled')));
+  const me = previewName();
+  if (!previewUI) ph.append(img); else ph.append(img, el('div', { class: 'shade-t' }), bars, el('div', { class: 'story-head' }, el('img', { class: 'av', src: previewAvatar() || photoSrc(frames[0]), alt: '' }), el('b', {}, me), el('span', { class: 'faint-w' }, 'Scheduled')));
   if (previewSafe) ph.append(safeOverlay('story'));
   ph.addEventListener('click', () => { i = (i + 1) % frames.length; img.src = photoSrc(frames[i]); [...bars.children].forEach((b, k) => b.classList.toggle('on', k <= i)); });
   return ph;
@@ -666,7 +667,7 @@ async function scheduleDemo(kind, images, platforms) {
   const when = fromInputs(C.date, C.time);
   if (!when || when < Date.now()) return toast('Pick a post time in the future', true);
   try {
-    const { post } = await api('/api/demo/post', json('POST', { kind, images, caption: C.caption, at: when.toISOString(), platforms }));
+    const { post } = await api('/api/demo/post', json('POST', { kind, images, caption: C.caption, at: when.toISOString(), platforms, brand: postingAs()?.id }));
     resetComposer(); toast(`Scheduled for ${fmtWhen(post.publishAt)}`); await load(); location.hash = `#/post/${post.id}`;
   } catch (e) { toast(e.message, true); }
 }
@@ -745,7 +746,7 @@ const shapeText = (a) => (Math.abs(a - 0.8) < 0.01 ? '4:5' : Math.abs(a - 1) < 0
 function realPhotosComposer(c) {
   const n = C.photos.length; const busy = C.uploading || 0;
   const label = n > 1 ? 'Schedule carousel' : 'Schedule photo';
-  topbar('New post', el('span', { class: 'mono small' }, n ? `${n} photo${n === 1 ? '' : 's'} · ${n > 1 ? 'carousel' : 'single photo'}` : 'Photos · up to 10'), [fmtSeg(), cancelBtn(), btn(busy ? 'Uploading…' : label, 'primary', () => scheduleReal('photos', C.photos), { disabled: !n || n > 10 || busy > 0 })]);
+  topbar('New post', el('span', { class: 'mono small' }, n ? `${n} photo${n === 1 ? '' : 's'} · ${n > 1 ? 'carousel' : 'single photo'}` : 'Photos · up to 10'), [brandPick(), fmtSeg(), cancelBtn(), btn(busy ? 'Uploading…' : label, 'primary', () => scheduleReal('photos', C.photos), { disabled: !n || n > 10 || busy > 0 })]);
   C.platform = 'instagram';
   const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview'), uiToggle(render), photoPhone('instagram', C.photos), el('div', { class: 'preview-note' }, "Instagram shows every photo at the first photo's shape. Queue cuts each one to it, once, from your original."));
   const photos = photoDropCard('Photos', C.photos, 10, (i) => (i === 0 ? 'Cover' : String(i + 1)), 'Drop JPEG, PNG or HEIC here · drag to reorder · the first photo is the cover');
@@ -758,7 +759,7 @@ function realPhotosComposer(c) {
 }
 function realStoryComposer(c) {
   const n = C.frames.length; const busy = C.uploading || 0;
-  topbar('New post', el('span', { class: 'mono small' }, n ? `${n} frame${n === 1 ? '' : 's'} · ${n * 5}s total · 9:16` : 'Story · up to 10 frames'), [fmtSeg(), cancelBtn(), btn(busy ? 'Uploading…' : 'Schedule story', 'primary', () => scheduleReal('story', C.frames), { disabled: !n || n > 10 || busy > 0 })]);
+  topbar('New post', el('span', { class: 'mono small' }, n ? `${n} frame${n === 1 ? '' : 's'} · ${n * 5}s total · 9:16` : 'Story · up to 10 frames'), [brandPick(), fmtSeg(), cancelBtn(), btn(busy ? 'Uploading…' : 'Schedule story', 'primary', () => scheduleReal('story', C.frames), { disabled: !n || n > 10 || busy > 0 })]);
   const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview'), previewToggles(render), storyPhone(C.frames), el('div', { class: 'preview-note' }, 'Tap the preview to step through frames. The top and bottom 14% sit under the story bar and reply box.'));
   const frames = photoDropCard('Frames', C.frames, 10, () => '5s Photo', 'Drop JPEG, PNG or HEIC here · each photo shows for 5 seconds · frames post in order');
   const stickers = el('div', { class: 'card stack', style: 'gap:10px' }, el('h2', { class: 'h3' }, "Stickers can't be added by any app"), el('div', { class: 'small muted' }, "Links, polls, music and mentions aren't available through Instagram's API. Stories take no caption."));

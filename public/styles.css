@@ -597,13 +597,17 @@ pre.method { margin: 0; white-space: pre-wrap; font: 12px/18px var(--mono); colo
 .phone.clean .carousel .cnt, .phone.clean .carousel .dots { display: none; }
 
 /* ---------------------------------------------------------------- team (demo + hosted) */
-.av { border-radius: 50%; flex: none; object-fit: cover; background: var(--surface-3); }
-.av-init { display: inline-grid; place-items: center; font-weight: 600; color: var(--text-primary); background: var(--surface-3); border: 1px solid var(--border-subtle); }
+/* A hairline ring so every picture keeps a visible edge on white and on black (3:1+ in both themes). */
+:root { --avatar-ring: rgba(0, 0, 0, 0.45); }
+:root[data-theme="dark"] { --avatar-ring: rgba(255, 255, 255, 0.4); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --avatar-ring: rgba(255, 255, 255, 0.4); } }
+.av { border-radius: 50%; flex: none; object-fit: cover; background: var(--surface-3); box-shadow: 0 0 0 1px var(--avatar-ring); }
+.av-init { display: inline-grid; place-items: center; font-weight: 600; color: var(--text-primary); background: var(--surface-3); }
 .av-xs { width: 18px; height: 18px; font-size: 8.5px; }
 .av-sm { width: 24px; height: 24px; font-size: 10px; }
 .av-md { width: 34px; height: 34px; font-size: 12.5px; }
 .av-stack { display: inline-flex; }
-.av-stack .av { box-shadow: 0 0 0 2px var(--surface-1); }
+.av-stack .av { box-shadow: 0 0 0 1px var(--avatar-ring), 0 0 0 3px var(--surface-1); }
 .av-stack .av + .av { margin-left: -6px; }
 .me { display: flex; align-items: center; gap: 10px; padding: 10px 6px 2px; }
 .me .who { flex: 1; min-width: 0; }
@@ -624,3 +628,5 @@ pre.method { margin: 0; white-space: pre-wrap; font: 12px/18px var(--mono); colo
 .roles { border-top: 1px solid var(--border-subtle); padding-top: 10px; }
 .roles summary { cursor: pointer; margin-bottom: 6px; }
 .roles .kv .role-tag { width: 92px; text-align: center; }
+.brand-chip { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.account .avatar.av { width: 30px; height: 30px; }

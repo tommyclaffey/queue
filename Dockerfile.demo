@@ -1,5 +1,5 @@
-# The public Queue demo (its own link on Railway). A made-up business, "Harbor Collective", with a
-# made-up team. Nothing in it can post anywhere: the demo has no Instagram client at all, and
+# The public Queue demo (its own link on Railway). A made-up social media studio, "Northline Social",
+# running five made-up accounts (a creator, a business, a church, a band, a nonprofit) with a made-up team. Nothing in it can post anywhere: the demo has no Instagram client at all, and
 # uploads, re-encodes and quality measuring are switched off (DEMO_PUBLIC=1).
 #
 # The sample videos, photos and their pre-measured quality scores (~550 MB) are not in git. They
@@ -18,7 +18,12 @@ ARG DEMO_PARTS="aa ab ac ad ae af"
 ARG DEMO_SHA256=1ca59151432fdb0532f05b07b3bd586e9faaffa1a6b7a8b57e628d79ea117544
 RUN set -e; cd /tmp; for p in $DEMO_PARTS; do curl -fsSL --retry 3 -o "part-$p" "$DEMO_RELEASE/queue-demo.part-$p"; done; \
     cat part-* > demo.tar; echo "$DEMO_SHA256  demo.tar" | sha256sum -c -; \
-    tar -xf demo.tar -C /app; find /app/demo -name '._*' -delete; rm -f part-* demo.tar
+    tar -xf demo.tar -C /app; rm -f part-* demo.tar
+# Newer photos and logos (the five accounts, the team) go over the top of demo-v1's.
+ARG DEMO_ASSETS=https://github.com/tommyclaffey/queue/releases/download/demo-assets-v2/queue-demo-assets-v2.tar
+ARG DEMO_ASSETS_SHA256=03bdd3fee83e7ea03a08e42fc9b397ec5d6c1dd715762d01f2fb51d71878fb81
+RUN set -e; cd /tmp; curl -fsSL --retry 3 -o assets.tar "$DEMO_ASSETS"; echo "$DEMO_ASSETS_SHA256  assets.tar" | sha256sum -c -; \
+    tar -xf assets.tar -C /app; rm -f assets.tar /app/demo/assets/harbor-logo.jpg /app/demo/assets/avatar.jpg; find /app/demo -name '._*' -delete
 COPY package.json ./
 COPY bin ./bin
 COPY src ./src

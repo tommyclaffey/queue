@@ -218,6 +218,8 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
   // anything that costs real CPU or disk (uploads, re-encodes, quality measuring) is switched off.
   const publicDemo = !!demo?.public;
   const DEMO_FULL = 80; // posts — the demo resets itself every few hours
+  // The demo studio's account a new post is for (falls back to the first one).
+  const demoBrand = (b) => (demo?.brands?.length ? (demo.brands.some((x) => x.id === b) ? b : demo.brands[0].id) : null);
   const allowedOrigin = (o) => !o || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o);
 
   // ---- Hosted mode (Railway etc.): on the public internet, so everything except the sign-in
@@ -380,8 +382,8 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       if (req.method === 'GET' && resource === 'extras') {
         let photos = [];
         // Sample photos for the composer: not the brand mark or the team's profile pictures.
-        if (demo?.assetsDir) try { photos = readdirSync(demo.assetsDir).filter((f) => !f.startsWith('.') && /\.jpe?g$/i.test(f) && f !== demo.account.avatar && !/^(team-|avatar\.)/.test(f)).sort(); } catch {}
-        return send(res, 200, demo ? { demo: true, public: publicDemo, resetHours: demo.resetHours || null, account: demo.account, platforms: demo.platforms, team: demo.team || null, activity: demo.activity || [], photos } : { demo: false, account: null, platforms: null, team: null, activity: [], photos: [] });
+        if (demo?.assetsDir) try { photos = readdirSync(demo.assetsDir).filter((f) => !f.startsWith('.') && /\.jpe?g$/i.test(f) && f !== demo.account.avatar && !/^(team-|brand-|avatar\.)|-logo\./.test(f)).sort(); } catch {}
+        return send(res, 200, demo ? { demo: true, public: publicDemo, resetHours: demo.resetHours || null, account: demo.account, platforms: demo.platforms, brands: demo.brands || null, team: demo.team || null, activity: demo.activity || [], photos } : { demo: false, account: null, platforms: null, brands: null, team: null, activity: [], photos: [] });
       }
 
       // Your recent Instagram posts (including ones made in other apps), to pick for a benchmark.
@@ -459,11 +461,11 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       // The demo's photo carousels and stories, from its sample photos (the real app uses /api/schedule).
       if (req.method === 'POST' && resource === 'demo' && id === 'post') {
         if (!demo) return send(res, 404, { error: 'not found' });
-        const { kind, images = [], caption = '', at, platforms = ['instagram'] } = await readJson(req);
+        const { kind, images = [], caption = '', at, platforms = ['instagram'], brand } = await readJson(req);
         if (!['photos', 'story'].includes(kind)) return send(res, 400, { error: 'Unknown post type.' });
         const imgs = images.map((n) => basename(String(n))).filter((n) => safeIn(demo.assetsDir, n));
         if (!imgs.length) return send(res, 400, { error: 'Pick at least one photo.' });
-        const post = queue.add({ file: null, caption, publishAt: validTime(at), kind, images: imgs, platforms, destinations: platforms.map((p) => ({ platform: p, format: kind === 'story' ? 'Story' : 'Carousel', status: 'queued' })), by: demo.team?.you || null });
+        const post = queue.add({ file: null, caption, publishAt: validTime(at), kind, images: imgs, platforms, destinations: platforms.map((p) => ({ platform: p, format: kind === 'story' ? 'Story' : 'Carousel', status: 'queued' })), by: demo.team?.you || null, brand: demoBrand(brand) });
         return send(res, 200, { post });
       }
 
@@ -606,7 +608,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         return send(res, 429, { error: 'The demo is full. It resets itself every few hours.' });
       }
       if (req.method === 'POST' && resource === 'schedule') {
-        const { name, at, caption = '', coverOffsetMs, platforms, kind, images } = await readJson(req);
+        const { name, at, caption = '', coverOffsetMs, platforms, kind, images, brand } = await readJson(req);
         // Photos (one photo or a carousel) and stories. Instagram only, by temporary link.
         if (kind === 'photos' || kind === 'story') {
           const names = Array.isArray(images) ? images.map((n) => basename(String(n))) : [];
@@ -641,7 +643,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
 
         const FORMAT = { instagram: 'Reel', youtubeshorts: 'Short', tiktok: 'Video', facebook: 'Reel', linkedin: 'Video' };
         const dests = demo && Array.isArray(platforms) && platforms.length ? platforms.filter((p) => FORMAT[p]) : ['instagram'];
-        const post = queue.add({ file: ready, caption, publishAt: when, coverOffsetMs: cover, fix: result.plan, source: basename(file), platforms: dests, destinations: demo ? dests.map((p) => ({ platform: p, format: FORMAT[p], status: 'queued' })) : null, by: demo?.team?.you || null });
+        const post = queue.add({ file: ready, caption, publishAt: when, coverOffsetMs: cover, fix: result.plan, source: basename(file), platforms: dests, destinations: demo ? dests.map((p) => ({ platform: p, format: FORMAT[p], status: 'queued' })) : null, by: demo?.team?.you || null, brand: demoBrand(brand) });
         return send(res, 200, { post: pub(post), fixed: result.plan });
       }
 

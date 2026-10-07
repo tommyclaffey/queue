@@ -42,7 +42,7 @@ const P = {
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
-  chevL: '<path d="m15 18-6-6 6-6"/>', chevR: '<path d="m9 18 6-6-6-6"/>',
+  chevL: '<path d="m15 18-6-6 6-6"/>', chevR: '<path d="m9 18 6-6-6-6"/>', chevD: '<path d="m6 9 6 6 6-6"/>',
   external: '<path d="M7 17 17 7M8 7h9v9"/>',
 };
 // Official platform glyphs (Simple Icons, CC0) — monochrome, uniform scale only.
@@ -225,6 +225,24 @@ function avatarEl(m, cls = 'av-sm') {
   if (!m) return null;
   return m.avatar ? el('img', { class: `av ${cls}`, src: imgUrl(m.avatar), alt: '', title: m.name }) : el('span', { class: `av av-init ${cls}`, title: m.name, 'aria-hidden': 'true' }, initials(m.name));
 }
+// ---- Accounts a studio runs (the demo: a creator, a business, a church, a band, a nonprofit)
+const brands = () => S.extras?.brands || [];
+const brandOf = (p) => brands().find((b) => b.id === p?.brand) || null;
+let brandSel = localStorage.getItem('queue-brand') || 'all';
+const curBrand = () => brands().find((b) => b.id === brandSel) || null;
+// Who a new post is for, and what the phone preview shows: the picked account, or the first one.
+const postingAs = () => (isDemo() && brands().length ? brands().find((b) => b.id === (C.brand || brandSel)) || brands()[0] : null);
+const previewName = () => postingAs()?.handle || S.status?.account || 'yourname';
+const previewAvatar = () => (postingAs()?.avatar ? imgUrl(postingAs().avatar) : S.extras?.account?.avatar ? imgUrl(S.extras.account.avatar) : null);
+function setBrand(id) { brandSel = id; localStorage.setItem('queue-brand', id); C.brand = null; S.posts = byBrand(S.allPosts || S.posts); render(); }
+const byBrand = (posts) => (curBrand() ? posts.filter((p) => p.brand === brandSel) : posts);
+const brandChip = (p, withName = true) => { const b = brandOf(p); return b ? el('span', { class: 'brand-chip', title: `${b.name} · ${b.type}` }, avatarEl(b, 'av-xs'), withName ? `@${b.handle}` : null) : null; };
+function brandPick() {
+  if (!isDemo() || !brands().length) return null;
+  const sel = el('select', { class: 'select small', 'aria-label': 'Posting as', on: { change: () => { C.brand = sel.value; render(); } } }, ...brands().map((b) => el('option', { value: b.id }, `Posting as @${b.handle}`)));
+  sel.value = postingAs().id;
+  return sel;
+}
 const timeAgo = (iso) => { if (!iso) return '—'; const m = Math.round((Date.now() - new Date(iso)) / 60000); if (m < 2) return 'Active now'; if (m < 60) return `${m}m ago`; const h = Math.round(m / 60); return h < 48 ? `${h}h ago` : `${Math.round(h / 24)}d ago`; };
 const PNAME = { instagram: 'Instagram', youtubeshorts: 'YouTube Shorts', youtube: 'YouTube', tiktok: 'TikTok', facebook: 'Facebook', linkedin: 'LinkedIn', threads: 'Threads', pinterest: 'Pinterest', bluesky: 'Bluesky', x: 'X' };
 const platformsOf = (p) => (p.platforms?.length ? p.platforms : ['instagram']);
@@ -263,7 +281,7 @@ const mins = (m) => (m % 60 ? `${m} minutes` : `${m / 60} hour${m === 60 ? '' : 
 const lateLimit = () => mins(S.config?.lateLimitMin ?? 120);
 async function load() {
   const [status, q, storage, config, extras, quality] = await Promise.all([api('/api/status'), api('/api/queue'), api('/api/storage').catch(() => null), S.config ? null : api('/api/config').catch(() => null), S.extras ? null : api('/api/extras').catch(() => null), api('/api/quality').catch(() => null)]);
-  S.status = status; S.posts = q.posts; S.storage = storage; if (config) S.config = config; if (extras) S.extras = extras; if (quality) S.quality = quality.comparisons;
+  S.status = status; S.storage = storage; if (config) S.config = config; if (extras) S.extras = extras; S.allPosts = q.posts; S.posts = byBrand(q.posts); if (quality) S.quality = quality.comparisons;
   renderChrome();
 }
 
@@ -295,11 +313,16 @@ function renderChrome() {
   const st = S.status;
   const live = st && !st.dryRun && st.account;
   const acct = $('#account');
-  acct.onclick = live ? null : () => (location.hash = '#/connect');
-  acct.classList.toggle('clickable', !live);
-  acct.title = live ? '' : 'Connect Instagram';
+  const switcher = isDemo() && brands().length;
+  acct.onclick = switcher ? (e) => { e.stopPropagation(); menu(acct, [['All accounts', () => setBrand('all')], ...brands().map((b) => [el('span', { class: 'row', style: 'gap:8px' }, avatarEl(b, 'av-sm'), el('span', {}, b.name, el('span', { class: 'muted' }, ` · ${b.type}`))), () => setBrand(b.id)])]); } : live ? null : () => (location.hash = '#/connect');
+  acct.classList.toggle('clickable', !!switcher || !live);
+  acct.title = switcher ? 'Switch account' : live ? '' : 'Connect Instagram';
+  if (switcher) {
+    const b = curBrand();
+    acct.replaceChildren(avatarEl(b || { name: S.extras.account.name, avatar: S.extras.account.avatar }, 'avatar'), el('div', { class: 'who' }, el('b', {}, b ? b.name : S.extras.account.name), el('div', { class: 'small muted' }, b ? `@${b.handle} · ${b.type}` : `All ${brands().length} accounts`)), el('span', { class: 'ico faint', html: svgIcon('chevD') }));
+  }
   $('#demoTag')?.classList.toggle('hidden', !isDemo());
-  acct.replaceChildren(...[
+  if (!switcher) acct.replaceChildren(...[
     S.extras?.account?.avatar ? el('img', { class: 'avatar', src: imgUrl(S.extras.account.avatar), alt: '' }) : el('div', { class: 'avatar' }, live ? st.account.slice(0, 1).toUpperCase() : 'Q'),
     el('div', { class: 'who' }, el('b', {}, live ? `@${st.account}` : 'Not connected'), el('div', { class: 'small muted row', style: 'gap:5px' }, el('span', { class: 'dot ' + (live ? 'ok' : st?.accountError ? 'bad' : 'warn') }), live ? 'Instagram · Live' : st?.accountError ? 'Connection problem' : 'Dry run — nothing posts')),
     live ? null : el('span', { class: 'ico faint', html: svgIcon('chevR') }),
@@ -380,7 +403,7 @@ VIEWS.dashboard = (c) => {
   for (const p of up.slice(0, 7)) {
     const d = new Date(p.publishAt); const day = fmtDay(d);
     if (day !== lastDay) { upCard.append(el('div', { class: 'upnext-day label' }, day)); lastDay = day; }
-    upCard.append(el('div', { class: 'upnext-row clickable', on: { click: (e) => { if (!e.target.closest('button')) openPost(p); } } }, el('div', { class: 'time' }, fmtTime(d)), thumb(p), el('div', { class: 'cap' }, postTitle(p)), platformStack(p), pill(statusOf(p)), btn('Edit', 'ghost', () => editPost(p))));
+    upCard.append(el('div', { class: 'upnext-row clickable', on: { click: (e) => { if (!e.target.closest('button')) openPost(p); } } }, el('div', { class: 'time' }, fmtTime(d)), thumb(p), el('div', { class: 'cap' }, postTitle(p), curBrand() ? null : el('div', { class: 'small muted' }, brandChip(p))), platformStack(p), pill(statusOf(p)), btn('Edit', 'ghost', () => editPost(p))));
   }
   // Right column
   const right = el('div', { class: 'stack' });
@@ -406,7 +429,7 @@ VIEWS.dashboard = (c) => {
     for (const a of S.extras.activity.slice(0, 5)) {
       const who = member(a.who); if (!who) continue;
       const target = a.postId && S.posts.find((p) => p.id === a.postId);
-      act.append(el('div', { class: 'act-row' + (target ? ' clickable' : ''), on: target ? { click: () => openPost(target) } : null }, avatarEl(who, 'av-sm'), el('div', { class: 'small', style: 'flex:1;min-width:0' }, el('b', { style: 'font-weight:600' }, who.name.split(' ')[0]), ` ${a.verb}`, a.caption ? el('span', { class: 'muted' }, ` “${a.caption}”`) : null), el('span', { class: 'small muted', style: 'white-space:nowrap' }, timeAgo(a.at).replace('Active now', 'just now'))));
+      act.append(el('div', { class: 'act-row' + (target ? ' clickable' : ''), on: target ? { click: () => openPost(target) } : null }, avatarEl(who, 'av-sm'), el('div', { class: 'small', style: 'flex:1;min-width:0' }, el('b', { style: 'font-weight:600' }, who.name.split(' ')[0]), ` ${a.verb}`, a.caption ? el('span', { class: 'muted' }, ` “${a.caption}”`) : null, brandOf(a) ? el('span', { class: 'muted' }, ` for @${brandOf(a).handle}`) : null), el('span', { class: 'small muted', style: 'white-space:nowrap' }, timeAgo(a.at).replace('Active now', 'just now'))));
     }
     right.append(act);
   }
@@ -495,7 +518,7 @@ VIEWS.queue = (c) => {
       ]);
       tbody.append(el('tr', { class: 'clickable ' + (needsYou(p) ? 'attention' : '') + (queueSel.has(p.id) ? ' selected' : ''), on: { click: (e) => { if (!e.target.closest('button, input, a')) openPost(p); } } },
         el('td', { class: 'cb' }, box),
-        el('td', {}, el('div', { class: 'post-cell' }, thumb(p), el('div', { style: 'min-width:0' }, el('div', { class: 'cap' }, postTitle(p)), el('div', { class: 'row small muted', style: 'gap:8px;margin-top:2px' }, platformStack(p), p.error && needsYou(p) ? el('span', { style: 'color:var(--warning)' }, p.error.split(' (Mac')[0].slice(0, 80)) : postMeta(p))))),
+        el('td', {}, el('div', { class: 'post-cell' }, thumb(p), el('div', { style: 'min-width:0' }, el('div', { class: 'cap' }, postTitle(p)), el('div', { class: 'row small muted', style: 'gap:8px;margin-top:2px' }, curBrand() ? null : brandChip(p, false), platformStack(p), p.error && needsYou(p) ? el('span', { style: 'color:var(--warning)' }, p.error.split(' (Mac')[0].slice(0, 80)) : postMeta(p))))),
         el('td', { class: 'small', style: 'white-space:nowrap' }, fmtWhen(p.publishAt), member(p.by) ? el('div', { class: 'row by', style: 'gap:6px;margin-top:3px' }, avatarEl(member(p.by), 'av-xs'), el('span', { class: 'muted' }, member(p.by).name.split(' ')[0])) : null),
         el('td', {}, pill(s)),
         el('td', {}, qualityCell(p)),
@@ -708,7 +731,7 @@ VIEWS.calendar = async (c) => {
     for (const p of posts) {
       const d = new Date(p.publishAt); const day = d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
       if (day !== last) { list.append(el('div', { class: 'upnext-day label' }, sameDay(d, today) ? `Today · ${day}` : day)); last = day; }
-      list.append(el('div', { class: 'upnext-row clickable', on: { click: () => openPost(p) } }, el('div', { class: 'time' }, fmtTime(d)), thumb(p), el('div', { class: 'cap' }, postTitle(p)), el('span', { class: 'small muted' }, postMeta(p)), platformStack(p), pill(statusOf(p))));
+      list.append(el('div', { class: 'upnext-row clickable', on: { click: () => openPost(p) } }, el('div', { class: 'time' }, fmtTime(d)), thumb(p), el('div', { class: 'cap' }, postTitle(p), curBrand() ? null : el('div', { class: 'small muted' }, brandChip(p))), el('span', { class: 'small muted' }, postMeta(p)), platformStack(p), pill(statusOf(p))));
     }
     main.append(list);
   }
@@ -1077,7 +1100,7 @@ function phone(platform, video, caption) {
   const I = (n, size = 24) => el('span', { style: `display:block;width:${size}px;height:${size}px`, html: svgIcon(n) });
   const at = (node, style) => { node.classList.add('abs'); node.setAttribute('style', (node.getAttribute('style') || '') + ';' + style); return node; };
   const capText = el('div', { 'data-cap': '' }, previewCaption(platform, caption));
-  const me = (S.status?.account || 'yourname');
+  const me = previewName();
   const av = (sz = 26) => el('div', { class: 'av', style: `width:${sz}px;height:${sz}px` }, me.slice(0, 1).toUpperCase());
   const rail = (items, bottom) => el('div', { class: 'rail', style: `bottom:${bottom}px` }, ...items.map(([ic, l, sz]) => el('div', {}, typeof ic === 'string' ? I(ic, sz || 26) : ic, l ? el('span', {}, l) : null)));
   const music = (t) => el('div', { class: 'music' }, I('music', 12), t);
@@ -1132,7 +1155,7 @@ async function openInComposer(name, date, time) {
     if (location.hash === '#/new') render(); else location.hash = '#/new';
   } catch (e) { toast(e.message, true); }
 }
-function resetComposer() { Object.assign(C, { upload: null, caption: '', date: '', time: '', coverMs: null, platform: 'instagram', format: 'video', dests: null, capTab: 'all', captions: {}, photos: [], crop: 'per', frames: [], remind: false, photoInfo: {}, uploading: 0 }); }
+function resetComposer() { Object.assign(C, { upload: null, caption: '', date: '', time: '', coverMs: null, platform: 'instagram', format: 'video', dests: null, capTab: 'all', captions: {}, photos: [], crop: 'per', frames: [], remind: false, photoInfo: {}, uploading: 0, brand: null }); }
 
 // ---------------------------------------------------------------- boot
 let dragging = false;
