@@ -506,3 +506,29 @@ test('🔔 notifications: posted and failed', async () => {
   assert.equal(queue.get(b.id).status, 'failed');
   assert.ok(notes.some((n) => /^Post failed: “Bad one”/.test(n)));
 });
+
+test('Post now on a post that is already uploaded: it publishes on the next check, once, not at its old time', async () => {
+  const ig = client();
+  const due = Date.now() + 90 * 60e3;
+  const post = queue.add({ file: video, caption: 'Skip the wait', publishAt: due });
+  await run(ig); await run(ig); await run(ig);
+  assert.equal(queue.get(post.id).status, 'ready', 'uploaded early and processed');
+  const containerId = queue.get(post.id).containerId;
+  assert.ok(queue.postNow(post.id), 'Post now accepted for a scheduled post');
+  assert.equal(queue.get(post.id).containerId, containerId, 'keeps the upload: nothing is sent to Instagram twice');
+  await run(ig);
+  assert.equal(queue.get(post.id).status, 'published');
+  assert.equal(meta.state.published, 1);
+  assert.equal(queue.postNow(post.id), null, 'a published post cannot be posted again');
+});
+
+test('Post now on a post not uploaded yet: it uploads and publishes straight away', async () => {
+  const ig = client();
+  const post = queue.add({ file: video, publishAt: Date.now() + 10 * HOUR }); // outside the 2h upload window
+  await run(ig);
+  assert.equal(queue.get(post.id).status, 'queued', 'too early to upload');
+  queue.postNow(post.id);
+  for (let i = 0; i < 4 && queue.get(post.id).status !== 'published'; i++) await run(ig);
+  assert.equal(queue.get(post.id).status, 'published');
+  assert.equal(meta.state.published, 1);
+});

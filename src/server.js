@@ -185,6 +185,10 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
     queue.update(post, {}, `quality measured: VMAF ${result.vmaf}`);
     return entry;
   }
+  // "Post now" from the composer: no date to check, it goes out as soon as it's ready.
+  const whenOf = (at, now) => (now === true ? new Date() : validTime(at));
+  // Don't make "Post now" wait for the next scheduled check.
+  const kick = () => setTimeout(() => (demo ? demoTick() : loop()), 50);
   const validTime = (at) => {
     const when = new Date(at);
     if (isNaN(when)) throw new Error('Pick a date and time.');
@@ -305,6 +309,14 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       if (!u) { failed(ip); return send(res, 401, { error: 'Wrong email or password.' }); }
       attempts.delete(ip);
       return startSession(req, res, u);
+    }
+    // Official platform logos (public/brand). Harmless, so they load before sign-in too.
+    const brandFile = req.method === 'GET' && /^\/brand\/([a-z]+(?:-dark)?)\.svg$/.exec(url.pathname);
+    if (brandFile) {
+      const f = fileIn(join(root, 'public', 'brand'), `${brandFile[1]}.svg`);
+      if (!f) return send(res, 404, { error: 'not found' });
+      res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+      return createReadStream(f).pipe(res);
     }
     if (hosted && !me) {
       const name = url.pathname === '/' ? 'login.html' : url.pathname.slice(1);
@@ -461,11 +473,12 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       // The demo's photo carousels and stories, from its sample photos (the real app uses /api/schedule).
       if (req.method === 'POST' && resource === 'demo' && id === 'post') {
         if (!demo) return send(res, 404, { error: 'not found' });
-        const { kind, images = [], caption = '', at, platforms = ['instagram'], brand } = await readJson(req);
+        const { kind, images = [], caption = '', at, platforms = ['instagram'], brand, now } = await readJson(req);
         if (!['photos', 'story'].includes(kind)) return send(res, 400, { error: 'Unknown post type.' });
         const imgs = images.map((n) => basename(String(n))).filter((n) => safeIn(demo.assetsDir, n));
         if (!imgs.length) return send(res, 400, { error: 'Pick at least one photo.' });
-        const post = queue.add({ file: null, caption, publishAt: validTime(at), kind, images: imgs, platforms, destinations: platforms.map((p) => ({ platform: p, format: kind === 'story' ? 'Story' : 'Carousel', status: 'queued' })), by: demo.team?.you || null, brand: demoBrand(brand) });
+        const post = queue.add({ file: null, caption, publishAt: whenOf(at, now), kind, images: imgs, platforms, destinations: platforms.map((p) => ({ platform: p, format: kind === 'story' ? 'Story' : 'Carousel', status: 'queued' })), by: demo.team?.you || null, brand: demoBrand(brand) });
+        if (now === true) kick();
         return send(res, 200, { post });
       }
 
@@ -608,7 +621,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         return send(res, 429, { error: 'The demo is full. It resets itself every few hours.' });
       }
       if (req.method === 'POST' && resource === 'schedule') {
-        const { name, at, caption = '', coverOffsetMs, platforms, kind, images, brand } = await readJson(req);
+        const { name, at, caption = '', coverOffsetMs, platforms, kind, images, brand, now } = await readJson(req);
         // Photos (one photo or a carousel) and stories. Instagram only, by temporary link.
         if (kind === 'photos' || kind === 'story') {
           const names = Array.isArray(images) ? images.map((n) => basename(String(n))) : [];
@@ -617,7 +630,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
           if (new Set(names).size !== names.length) return send(res, 400, { error: 'The same photo is in there twice.' });
           const originals = names.map(safePhoto);
           if (originals.some((f) => !f)) return send(res, 400, { error: 'Upload the photos first.' });
-          const when = validTime(at);
+          const when = whenOf(at, now);
           if (typeof caption !== 'string' || caption.length > 2200) return send(res, 400, { error: 'Caption is over 2,200 characters.' });
           if (!ig.dryRun && !demo) {
             if (hosted && !files?.publicBaseUrl) return send(res, 400, { error: 'Hosted mode needs a public address (RAILWAY_PUBLIC_DOMAIN or PUBLIC_BASE_URL) so Instagram can fetch the photos.' });
@@ -625,11 +638,12 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
           }
           const prepared = await preparePostPhotos(kind, originals);
           const post = queue.add({ file: null, caption: kind === 'story' ? '' : caption, publishAt: when, kind, images: prepared.map((f) => basename(f)), imageFiles: prepared, sources: names, platforms: ['instagram'], destinations: demo ? [{ platform: 'instagram', format: kind === 'story' ? 'Story' : names.length > 1 ? 'Carousel' : 'Photo', status: 'queued' }] : null });
+          if (now === true) kick();
           return send(res, 200, { post: pub(post) });
         }
         const file = safeMedia(name);
         if (!file) return send(res, 400, { error: 'Upload the video first.' });
-        const when = validTime(at);
+        const when = whenOf(at, now);
         if (caption.length > 2200) return send(res, 400, { error: 'Caption is over 2,200 characters.' });
 
         const { info, result } = await summarizeAsync(file);
@@ -644,6 +658,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         const FORMAT = { instagram: 'Reel', youtubeshorts: 'Short', tiktok: 'Video', facebook: 'Reel', linkedin: 'Video' };
         const dests = demo && Array.isArray(platforms) && platforms.length ? platforms.filter((p) => FORMAT[p]) : ['instagram'];
         const post = queue.add({ file: ready, caption, publishAt: when, coverOffsetMs: cover, fix: result.plan, source: basename(file), platforms: dests, destinations: demo ? dests.map((p) => ({ platform: p, format: FORMAT[p], status: 'queued' })) : null, by: demo?.team?.you || null, brand: demoBrand(brand) });
+        if (now === true) kick();
         return send(res, 200, { post: pub(post), fixed: result.plan });
       }
 
@@ -673,7 +688,8 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
         }
         if (req.method === 'POST' && id && action === 'post-now') {
           const post = queue.postNow(id);
-          return post ? send(res, 200, { post: pub(post) }) : send(res, 400, { error: 'Only missed posts can be posted now.' });
+          if (post) kick();
+          return post ? send(res, 200, { post: pub(post) }) : send(res, 400, { error: 'That post has already gone out, or is no longer in the queue.' });
         }
         if (req.method === 'POST' && id && action === 'retry') {
           const before = queue.get(id);

@@ -43,6 +43,7 @@ VIEWS.post = async (c, id) => {
   } else {
     if (s === 'missed') actions.push(btn('Post now', 'primary', () => missedDecision(p)));
     if (s === 'failed') actions.push(btn('Retry', 'primary', () => retry(p)));
+    if (upcoming(p)) actions.push(btn('Post now', 'secondary', () => postNowExisting(p)));
     if (!p.images) actions.push(btn('Edit', s === 'missed' || s === 'failed' ? 'secondary' : 'primary', () => editPost(p)));
     actions.push(moreBtn(() => [['Remove from schedule', () => removePost(p), { danger: true }]]));
   }
@@ -440,7 +441,7 @@ function videoComposer(c) {
   const multi = isDemo();
   const label = multi ? `Schedule to ${on.length} platform${on.length === 1 ? '' : 's'}` : 'Schedule Reel';
   const schedBtn = btn(label, 'primary', scheduleVideo, { disabled: up.result.needsTrim || !on.length });
-  topbar('New post', el('span', { class: 'mono small' }, `${shortName(up.name)} · ${fmtDur(up.info.durationSec)} · ${v.width}×${v.height}${hdr ? ' · HDR' : ''}`), [brandPick(), fmtSeg(), cancelBtn(), schedBtn]);
+  topbar('New post', el('span', { class: 'mono small' }, `${shortName(up.name)} · ${fmtDur(up.info.durationSec)} · ${v.width}×${v.height}${hdr ? ' · HDR' : ''}`), [brandPick(), fmtSeg(), cancelBtn(), postNowBtn(destNames(on.length ? on : ['instagram']), scheduleVideo, { disabled: up.result.needsTrim || !on.length }), schedBtn]);
 
   const grid = el('div', { class: 'composer' });
   // preview column
@@ -472,7 +473,7 @@ function videoComposer(c) {
     const isOn = C.dests.has(p);
     const handle = multi ? S.extras.platforms[p === 'youtubeshorts' ? 'youtube' : p]?.handle || 'Not connected' : p === 'instagram' ? handle0() : PLATFORMS.find((x) => x.id === (p === 'youtubeshorts' ? 'youtube' : p))?.delivery;
     const [dtxt, dcls] = deliveryOf(p);
-    const right = !multi && p !== 'instagram' ? el('span', { class: 'pill soon' }, 'Coming soon') : el('span', { class: `pill ${dcls === 'native' ? 'posted' : dcls === 'drafts' ? 'missed' : ''}` }, dtxt);
+    const right = !multi && p !== 'instagram' ? el('span', { class: 'pill soon' }, 'Coming soon') : el('span', { class: `pill dpill ${dcls === 'native' ? 'posted' : dcls === 'drafts' ? 'missed' : 'queue'}` }, el('i', { class: 'ddot', 'aria-hidden': 'true' }), dtxt);
     dests.append(el('div', { class: 'dest-row' + (ok ? '' : ' off') }, toggleBtn(isOn, ok && (multi || p === 'instagram') ? () => { isOn ? C.dests.delete(p) : C.dests.add(p); render(); } : null, !ok || (!multi && p !== 'instagram')), badge(p), el('div', { class: 'who' }, el('b', {}, PNAME[p]), el('div', { class: 'small faint' }, handle)), el('span', { class: 'chip' }, FORMAT_OF[p]), right));
   }
   const capCard = captionCard(multi, drawPreview);
@@ -518,7 +519,7 @@ function tailoredPanel(up, on) {
   const atQ = on.filter((p) => ['instagram', 'linkedin', 'threads'].includes(p)).map((p) => PNAME[p]);
   const det = el('details', { class: 'qdetails' }, el('summary', { class: 'small' }, 'Full quality check'), qualityPanel(up));
   return el('div', { class: 'card stack', style: 'gap:12px' }, el('h2', { class: 'h3' }, 'One source, tailored versions'),
-    el('div', { class: 'inset' }, el('div', { class: 'label' }, 'Your file'), el('div', { class: 'mono small' }, `${v.width}×${v.height} · ${hdr ? 'HDR (HLG)' : 'SDR'} · ${mbps} Mbps`)),
+    el('div', { class: 'inset' }, el('span', { class: 'hl-label' }, 'Original file'), el('div', { class: 'mono small' }, `${v.width}×${v.height} · ${hdr ? 'HDR (HLG)' : 'SDR'} · ${mbps} Mbps`)),
     el('div', {}, ...rows.map(([p, spec, what, col]) => el('div', { class: 'tv-row' }, badge(p), el('div', {}, el('div', { class: 'mono small' }, spec), el('div', { class: 'small', style: col ? `color:var(--${col})` : '' }, what))))),
     up.result.needsTrim ? el('div', { class: 'issue error' }, 'Needs a trim: platforms accept 3 seconds to 15 minutes.') : el('div', { class: 'boxed small' }, `${files} file${files === 1 ? '' : 's'} total. Every platform gets at most one encode from your original.`),
     el('div', { class: 'stack', style: 'gap:4px' }, el('div', { class: 'label' }, 'Delivery'),
@@ -527,18 +528,34 @@ function tailoredPanel(up, on) {
       on.includes('tiktok') ? el('div', { class: 'small', style: 'color:var(--warning)' }, '• TikTok lands in your drafts — tap Post in the app') : null),
     det);
 }
+// ---- Post now: skip the schedule. Every composer has it next to Schedule, behind one confirm.
+function takePostNow() { const n = !!C.postNow; C.postNow = false; return n; }
+const doneToast = (post, now) => (now ? 'Posting now. It goes live as soon as it\u2019s ready, usually within a minute.' : `Scheduled for ${fmtWhen(post.publishAt)}`);
+function confirmPostNow(where, run) {
+  modal((m, close) => {
+    m.append(el('h2', { class: 'h2' }, 'Post now?'),
+      el('div', { class: 'small muted' }, `It skips the schedule and goes live on ${where} as soon as it\u2019s ready, usually within a minute. A post can\u2019t be taken back from Queue.`),
+      el('div', { class: 'foot' }, btn('Cancel', 'ghost', close), btn('Post now', 'primary', () => { close(); run(); })));
+  });
+}
+function postNowBtn(where, fn, opts = {}) {
+  return btn('Post now', 'secondary', () => confirmPostNow(where, () => { C.postNow = true; fn(); }), { title: 'Skip the schedule and post as soon as it\u2019s ready', ...opts });
+}
+const destNames = (list) => { const n = list.map((p) => PNAME[p] || p); return n.length <= 2 ? n.join(' and ') : `${n.slice(0, -1).join(', ')} and ${n.at(-1)}`; };
+
 async function scheduleVideo() {
   if (C.busy) return;
-  const when = fromInputs(C.date, C.time);
-  if (!when || when < Date.now()) return toast('Pick a post time in the future', true);
+  const now = takePostNow(); // "Post now" skips the date: it goes out as soon as it's ready
+  const when = now ? new Date() : fromInputs(C.date, C.time);
+  if (!now && (!when || when < Date.now())) return toast('Pick a post time in the future', true);
   if (C.caption.length > 2200) return toast('Caption is over 2,200 characters', true);
   C.busy = true;
   const up = C.upload; const v = up.info.video || {}; const hdr = ['arib-std-b67', 'smpte2084'].includes(v.colorTransfer);
   const on = [...C.dests]; const multi = isDemo();
   const plan = up.result.plan;
   const steps = multi
-    ? [[`Checked against each platform's spec`, `${on.length} destination${on.length === 1 ? '' : 's'}`], ...(on.includes('youtubeshorts') ? [['YouTube: your original, untouched', hdr ? 'No encode needed — 4K HDR is supported' : 'No encode needed']] : []), ...(plan === 'hdr' ? [['HDR → standard colour', "Apple's converter"]] : []), [plan === 'none' ? 'Shipping your original' : `Encoding the ${Math.min(1080, v.width)}-wide version`, `Shared by ${on.filter((p) => !['youtubeshorts', 'x'].includes(p)).map((p) => PNAME[p]).join(', ') || 'Instagram'}`, true], ['Re-checking every version', "Each must pass its platform's rules"], ['Handing off', [on.some((p) => ['youtubeshorts', 'facebook'].includes(p)) ? 'YouTube & Facebook schedule natively' : null, on.includes('tiktok') ? 'TikTok → drafts' : null].filter(Boolean).join(' · ') || `Scheduling for ${fmtWhen(when.toISOString())}`]]
-    : [["Checked against Instagram's spec", ''], [PLAN_TEXT[plan][0], PLAN_TEXT[plan][1], plan !== 'none'], ['Re-checking the result', ''], [`Scheduling for ${fmtWhen(when.toISOString())}`, '']];
+    ? [[`Checked against each platform's spec`, `${on.length} destination${on.length === 1 ? '' : 's'}`], ...(on.includes('youtubeshorts') ? [['YouTube: your original, untouched', hdr ? 'No encode needed — 4K HDR is supported' : 'No encode needed']] : []), ...(plan === 'hdr' ? [['HDR → standard colour', "Apple's converter"]] : []), [plan === 'none' ? 'Shipping your original' : `Encoding the ${Math.min(1080, v.width)}-wide version`, `Shared by ${on.filter((p) => !['youtubeshorts', 'x'].includes(p)).map((p) => PNAME[p]).join(', ') || 'Instagram'}`, true], ['Re-checking every version', "Each must pass its platform's rules"], ['Handing off', [on.some((p) => ['youtubeshorts', 'facebook'].includes(p)) ? 'YouTube & Facebook schedule natively' : null, on.includes('tiktok') ? 'TikTok → drafts' : null].filter(Boolean).join(' · ') || (now ? 'Posting now' : `Scheduling for ${fmtWhen(when.toISOString())}`)]]
+    : [["Checked against Instagram's spec", ''], [PLAN_TEXT[plan][0], PLAN_TEXT[plan][1], plan !== 'none'], ['Re-checking the result', ''], [now ? 'Posting now' : `Scheduling for ${fmtWhen(when.toISOString())}`, '']];
   let idx = 0; let pct = 0; let timer;
   const list = el('div', { class: 'stack', style: 'gap:14px' });
   const draw = () => list.replaceChildren(...steps.map(([t, sub, bar], i) => { const st = i < idx ? 'done' : i === idx ? 'active' : 'next'; return el('div', { class: `step ${st}` }, el('div', { class: 'mark' }, st === 'done' ? '✓' : ''), el('div', { style: 'flex:1' }, el('div', { style: st === 'next' ? '' : 'font-weight:500' }, t), sub ? el('div', { class: 'small muted' }, sub) : null, bar && st === 'active' ? el('div', { class: 'stack', style: 'gap:4px;margin-top:6px' }, el('div', { class: 'bar' }, el('span', { style: `width:${pct}%` })), el('div', { class: 'mono small' }, `${pct}%`)) : null)); }));
@@ -549,10 +566,10 @@ async function scheduleVideo() {
   // Walk the checklist while the server does the real work.
   timer = setInterval(() => { const barStep = steps.findIndex((s) => s[2]); if (idx === barStep && pct < 92) pct = Math.min(92, pct + 7); else if (idx < steps.length - 2) idx++; draw(); }, 450);
   try {
-    const r = await api('/api/schedule', json('POST', { name: up.name, at: when.toISOString(), caption: C.caption, coverOffsetMs: C.coverMs, platforms: on, brand: postingAs()?.id }));
+    const r = await api('/api/schedule', json('POST', { name: up.name, at: when.toISOString(), caption: C.caption, coverOffsetMs: C.coverMs, platforms: on, brand: postingAs()?.id, now }));
     clearInterval(timer); idx = steps.length; pct = 100; draw();
     await new Promise((res) => setTimeout(res, 650));
-    close(); resetComposer(); toast(`Scheduled for ${fmtWhen(r.post.publishAt)}`);
+    close(); resetComposer(); toast(doneToast(r.post, now));
     await load(); location.hash = `#/post/${r.post.id}`;
   } catch (e) { clearInterval(timer); close(); toast(e.message, true); }
   finally { C.busy = false; }
@@ -595,7 +612,7 @@ function photosComposer(c) {
   if (!C.dests) C.dests = new Set(['instagram', 'tiktok', 'linkedin', 'facebook']);
   const on = PHOTO_DESTS.map(([p]) => p).filter((p) => C.dests.has(p) && canUse(p));
   const n = C.photos.length;
-  topbar('New post', el('span', { class: 'mono small' }, `${n} photo${n === 1 ? '' : 's'} · carousel · 1600×2400 originals`), [brandPick(), fmtSeg(), cancelBtn(), btn(`Schedule to ${on.length} platform${on.length === 1 ? '' : 's'}`, 'primary', () => scheduleDemo('photos', C.photos, on), { disabled: !n || !on.length })]);
+  topbar('New post', el('span', { class: 'mono small' }, `${n} photo${n === 1 ? '' : 's'} · carousel · 1600×2400 originals`), [brandPick(), fmtSeg(), cancelBtn(), postNowBtn(destNames(on), () => scheduleDemo('photos', C.photos, on), { disabled: !n || !on.length }), btn(`Schedule to ${on.length} platform${on.length === 1 ? '' : 's'}`, 'primary', () => scheduleDemo('photos', C.photos, on), { disabled: !n || !on.length })]);
   if (!['instagram', 'tiktok', 'linkedin', 'facebook'].includes(C.platform)) C.platform = 'instagram';
   const ptabs = el('div', { class: 'ptabs' }, ...['instagram', 'tiktok', 'linkedin', 'facebook'].map((p) => el('button', { class: C.platform === p ? 'on' : '', html: svgLogo(p), title: PNAME[p], 'aria-label': `Preview as ${PNAME[p]}`, 'aria-pressed': String(C.platform === p), on: { click: () => { C.platform = p; render(); } } })));
   const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, uiToggle(render), photoPhone(C.platform, C.photos), el('div', { class: 'preview-note' }, { instagram: "Instagram crops every photo to the first photo's shape. Queue sets 4:5 for the tallest look.", tiktok: 'TikTok shows photos full-screen at 9:16. Queue fits each one with a soft blurred fill.', linkedin: 'LinkedIn shows a grid in the feed, then the full photos when tapped.', facebook: 'Facebook keeps more pixels than Instagram — up to 2048 wide.' }[C.platform]));
@@ -636,7 +653,7 @@ function storyComposer(c) {
   if (!C.dests) C.dests = new Set(['instagram', 'facebook']);
   const on = ['instagram', 'facebook'].filter((p) => C.dests.has(p));
   const n = C.frames.length;
-  topbar('New post', el('span', { class: 'mono small' }, `${n} frame${n === 1 ? '' : 's'} · ${n * 5}s total · 9:16`), [brandPick(), fmtSeg(), cancelBtn(), btn(`Schedule to ${on.length} platform${on.length === 1 ? '' : 's'}`, 'primary', () => scheduleDemo('story', C.frames, on), { disabled: !n || !on.length })]);
+  topbar('New post', el('span', { class: 'mono small' }, `${n} frame${n === 1 ? '' : 's'} · ${n * 5}s total · 9:16`), [brandPick(), fmtSeg(), cancelBtn(), postNowBtn(destNames(on), () => scheduleDemo('story', C.frames, on), { disabled: !n || !on.length }), btn(`Schedule to ${on.length} platform${on.length === 1 ? '' : 's'}`, 'primary', () => scheduleDemo('story', C.frames, on), { disabled: !n || !on.length })]);
   if (!['instagram', 'facebook'].includes(C.platform)) C.platform = 'instagram';
   const ptabs = el('div', { class: 'ptabs' }, ...['instagram', 'facebook'].map((p) => el('button', { class: C.platform === p ? 'on' : '', html: svgLogo(p), title: PNAME[p], 'aria-label': `Preview as ${PNAME[p]}`, 'aria-pressed': String(C.platform === p), on: { click: () => { C.platform = p; render(); } } })));
   const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, previewToggles(render), storyPhone(C.frames), el('div', { class: 'preview-note' }, 'Tap the preview to step through frames. The top and bottom 14% sit under the story bar and reply box.'));
@@ -664,11 +681,12 @@ function storyPhone(frames) {
   return ph;
 }
 async function scheduleDemo(kind, images, platforms) {
-  const when = fromInputs(C.date, C.time);
-  if (!when || when < Date.now()) return toast('Pick a post time in the future', true);
+  const now = takePostNow(); // "Post now" skips the date: it goes out as soon as it's ready
+  const when = now ? new Date() : fromInputs(C.date, C.time);
+  if (!now && (!when || when < Date.now())) return toast('Pick a post time in the future', true);
   try {
-    const { post } = await api('/api/demo/post', json('POST', { kind, images, caption: C.caption, at: when.toISOString(), platforms, brand: postingAs()?.id }));
-    resetComposer(); toast(`Scheduled for ${fmtWhen(post.publishAt)}`); await load(); location.hash = `#/post/${post.id}`;
+    const { post } = await api('/api/demo/post', json('POST', { kind, images, caption: C.caption, at: when.toISOString(), platforms, brand: postingAs()?.id, now }));
+    resetComposer(); toast(doneToast(post, now)); await load(); location.hash = `#/post/${post.id}`;
   } catch (e) { toast(e.message, true); }
 }
 
@@ -746,7 +764,7 @@ const shapeText = (a) => (Math.abs(a - 0.8) < 0.01 ? '4:5' : Math.abs(a - 1) < 0
 function realPhotosComposer(c) {
   const n = C.photos.length; const busy = C.uploading || 0;
   const label = n > 1 ? 'Schedule carousel' : 'Schedule photo';
-  topbar('New post', el('span', { class: 'mono small' }, n ? `${n} photo${n === 1 ? '' : 's'} · ${n > 1 ? 'carousel' : 'single photo'}` : 'Photos · up to 10'), [brandPick(), fmtSeg(), cancelBtn(), btn(busy ? 'Uploading…' : label, 'primary', () => scheduleReal('photos', C.photos), { disabled: !n || n > 10 || busy > 0 })]);
+  topbar('New post', el('span', { class: 'mono small' }, n ? `${n} photo${n === 1 ? '' : 's'} · ${n > 1 ? 'carousel' : 'single photo'}` : 'Photos · up to 10'), [brandPick(), fmtSeg(), cancelBtn(), postNowBtn('Instagram', () => scheduleReal('photos', C.photos), { disabled: !n || n > 10 || busy > 0 }), btn(busy ? 'Uploading…' : label, 'primary', () => scheduleReal('photos', C.photos), { disabled: !n || n > 10 || busy > 0 })]);
   C.platform = 'instagram';
   const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview'), uiToggle(render), photoPhone('instagram', C.photos), el('div', { class: 'preview-note' }, "Instagram shows every photo at the first photo's shape. Queue cuts each one to it, once, from your original."));
   const photos = photoDropCard('Photos', C.photos, 10, (i) => (i === 0 ? 'Cover' : String(i + 1)), 'Drop JPEG, PNG or HEIC here · drag to reorder · the first photo is the cover');
@@ -759,7 +777,7 @@ function realPhotosComposer(c) {
 }
 function realStoryComposer(c) {
   const n = C.frames.length; const busy = C.uploading || 0;
-  topbar('New post', el('span', { class: 'mono small' }, n ? `${n} frame${n === 1 ? '' : 's'} · ${n * 5}s total · 9:16` : 'Story · up to 10 frames'), [brandPick(), fmtSeg(), cancelBtn(), btn(busy ? 'Uploading…' : 'Schedule story', 'primary', () => scheduleReal('story', C.frames), { disabled: !n || n > 10 || busy > 0 })]);
+  topbar('New post', el('span', { class: 'mono small' }, n ? `${n} frame${n === 1 ? '' : 's'} · ${n * 5}s total · 9:16` : 'Story · up to 10 frames'), [brandPick(), fmtSeg(), cancelBtn(), postNowBtn('Instagram', () => scheduleReal('story', C.frames), { disabled: !n || n > 10 || busy > 0 }), btn(busy ? 'Uploading…' : 'Schedule story', 'primary', () => scheduleReal('story', C.frames), { disabled: !n || n > 10 || busy > 0 })]);
   const col1 = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview'), previewToggles(render), storyPhone(C.frames), el('div', { class: 'preview-note' }, 'Tap the preview to step through frames. The top and bottom 14% sit under the story bar and reply box.'));
   const frames = photoDropCard('Frames', C.frames, 10, () => '5s Photo', 'Drop JPEG, PNG or HEIC here · each photo shows for 5 seconds · frames post in order');
   const stickers = el('div', { class: 'card stack', style: 'gap:10px' }, el('h2', { class: 'h3' }, "Stickers can't be added by any app"), el('div', { class: 'small muted' }, "Links, polls, music and mentions aren't available through Instagram's API. Stories take no caption."));
@@ -770,14 +788,15 @@ function realStoryComposer(c) {
 }
 async function scheduleReal(kind, images) {
   if (C.busy) return;
-  const when = fromInputs(C.date, C.time);
-  if (!when || when < Date.now()) return toast('Pick a post time in the future', true);
+  const now = takePostNow(); // "Post now" skips the date: it goes out as soon as it's ready
+  const when = now ? new Date() : fromInputs(C.date, C.time);
+  if (!now && (!when || when < Date.now())) return toast('Pick a post time in the future', true);
   if (kind === 'photos' && C.caption.length > 2200) return toast('Caption is over 2,200 characters', true);
   C.busy = true;
   toast(kind === 'story' ? 'Preparing your frames…' : 'Preparing your photos…');
   try {
-    const { post } = await api('/api/schedule', json('POST', { kind, images, caption: kind === 'story' ? '' : C.caption, at: when.toISOString() }));
-    resetComposer(); toast(`Scheduled for ${fmtWhen(post.publishAt)}`); await load(); location.hash = `#/post/${post.id}`;
+    const { post } = await api('/api/schedule', json('POST', { kind, images, caption: kind === 'story' ? '' : C.caption, at: when.toISOString(), now }));
+    resetComposer(); toast(doneToast(post, now)); await load(); location.hash = `#/post/${post.id}`;
   } catch (e) { toast(e.message, true); }
   finally { C.busy = false; }
 }

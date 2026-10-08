@@ -117,8 +117,14 @@ export class Queue {
 
   // A 'missed' post, posted anyway on your say-so. If it's still uploaded and processed on
   // Meta's side, it goes out on the next tick; otherwise it's uploaded first.
+  // Post now: a missed post goes out on your OK; a scheduled one skips the wait. Moving the time
+  // doesn't touch what's already uploaded to Instagram (caption and cover are baked in, the
+  // time isn't), so a staged post publishes as soon as Instagram has finished processing it.
   postNow(id) {
     const post = this.get(id);
+    if (post && ['queued', 'staged', 'ready'].includes(post.status)) {
+      return this.update(post, { publishAt: new Date().toISOString(), allowLate: true, error: null, lateWarned: false }, 'post now requested');
+    }
     if (!post || post.status !== 'missed') return null;
     const patch = { allowLate: true, error: null, attempts: 0, rev: (post.rev || 0) + 1 };
     const staged = post.containerId || (post.kind === 'story' && post.frames?.some((f) => f.id && !f.published));

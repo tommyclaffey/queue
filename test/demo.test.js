@@ -126,3 +126,25 @@ test('public demo: any host can view it; uploads, measuring and cross-site write
     assert.equal(ok.status, 200, 'looking around and scheduling still works');
   } finally { await pub.stop(); cleanup(d); }
 });
+
+// Post now: skip the schedule, from the composer or on a post that's already waiting.
+test('post now: a scheduled post goes out straight away, and so does one sent with now: true', async () => {
+  const later = await api('/api/demo/post', json('POST', { kind: 'photos', images: ['drums.jpg', 'latte.jpg'], at: new Date(Date.now() + 9e6).toISOString(), platforms: ['instagram'] }));
+  assert.equal(later.status, 200);
+  const r = await api(`/api/queue/${later.body.post.id}/post-now`, { method: 'POST' });
+  assert.equal(r.status, 200);
+  assert.ok(await waitFor(() => queue.get(later.body.post.id)?.status === 'published'), 'the scheduled post was published on Post now');
+  const again = await api(`/api/queue/${later.body.post.id}/post-now`, { method: 'POST' });
+  assert.equal(again.status, 400, 'a post that already went out cannot be posted again');
+  const now = await api('/api/demo/post', json('POST', { kind: 'story', images: ['drums.jpg'], now: true, platforms: ['instagram'] }));
+  assert.equal(now.status, 200, 'no date needed with now: true');
+  assert.ok(await waitFor(() => queue.get(now.body.post.id)?.status === 'published'), 'posted straight from the composer');
+});
+
+test('official platform logos are served, and nothing else from that folder', async () => {
+  const r = await fetch(base + '/brand/instagram.svg');
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /image\/svg\+xml/);
+  assert.equal((await fetch(base + '/brand/tiktok-dark.svg')).status, 200);
+  for (const bad of ['/brand/SOURCES.md', '/brand/..%2Fapp.js', '/brand/nope.svg']) assert.notEqual((await fetch(base + bad)).status, 200, bad);
+});
