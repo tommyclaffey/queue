@@ -660,3 +660,36 @@ pre.method { margin: 0; white-space: pre-wrap; font: 12px/18px var(--mono); colo
 /* The lime highlight: dark ink on lime, the full letter height (marketing's "ORIGINAL FILE") */
 :root { --highlight: #C6F432; --highlight-ink: #1D1D1F; }
 .hl-label { display: inline-block; font: 600 11px/18px var(--mono); letter-spacing: .5px; text-transform: uppercase; padding: 1px 8px; border-radius: 999px; background: var(--highlight); color: var(--highlight-ink); margin-bottom: 6px; }
+
+/* ---------------------------------------------------------------- phone screen (Queue is a desktop app for now) */
+.phone-gate { display: none; }
+@media (max-width: 760px) {
+  html:not(.phone-ok) .app { display: none; }
+  html:not(.phone-ok) .phone-gate { display: block; min-height: 100vh; background: var(--bg-app); color: var(--text-primary); }
+}
+.pg-inner { max-width: 520px; margin: 0 auto; padding: 28px 20px 44px; display: flex; flex-direction: column; gap: 18px; }
+.pg-logo { display: flex; align-items: center; gap: 9px; }
+.pg-logo .demo-tag { margin-left: 4px; }
+.pg-title { font: 700 30px/1.15 var(--font); letter-spacing: -0.6px; margin: 4px 0 0; }
+.pg-lede { font-size: 16px; line-height: 1.5; margin: 0; color: var(--text-primary); }
+.pg-shots { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; margin: 0 -20px; padding: 2px 20px 8px; scrollbar-width: none; }
+.pg-shots::-webkit-scrollbar { display: none; }
+.pg-shots figure { flex: 0 0 86%; scroll-snap-align: center; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.pg-shots img { width: 100%; height: auto; aspect-ratio: 1200 / 781; object-fit: cover; object-position: top left; display: block; border-radius: 12px; border: 1px solid var(--border-default); box-shadow: 0 8px 24px rgba(0, 0, 0, .10); }
+.pg-actions { display: flex; flex-direction: column; gap: 10px; }
+.pg-actions .btn { width: 100%; min-height: 46px; font-size: 15px; }
+.pg-actions .btn.secondary { border-color: var(--border-strong); } /* a visible edge on the page colour */
+.pg-foot { margin: 6px 0 0; text-align: center; }
+
+/* ---------------------------------------------------------------- the demo's welcome card */
+.modal.welcome-card { width: min(540px, calc(100vw - 40px)); gap: 12px; }
+.modal.welcome-card .h2 { margin: 0; }
+.modal.welcome-card .hl-label { align-self: flex-start; margin-bottom: 0; }
+.welcome-lede { font-size: 15px; line-height: 1.5; margin: 0; }
+.tour-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.tour-item { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; padding: 11px 12px; border-radius: 12px; border: 1px solid var(--border-default); background: var(--surface-1); color: inherit; font: inherit; cursor: pointer; }
+.tour-item:hover { background: var(--surface-hover); }
+.tour-n { width: 24px; height: 24px; flex: none; border-radius: 50%; display: grid; place-items: center; font: 600 12px var(--mono); background: var(--highlight); color: var(--highlight-ink); }
+.tour-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tour-txt b { font-weight: 600; }
+.note-link { display: inline-block; margin-top: 6px; padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }

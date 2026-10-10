@@ -148,3 +148,10 @@ test('official platform logos are served, and nothing else from that folder', as
   assert.equal((await fetch(base + '/brand/tiktok-dark.svg')).status, 200);
   for (const bad of ['/brand/SOURCES.md', '/brand/..%2Fapp.js', '/brand/nope.svg']) assert.notEqual((await fetch(base + bad)).status, 200, bad);
 });
+
+test('phone-screen screenshots are served by name, and nothing else from that folder', async () => {
+  const r = await fetch(base + '/shots/composer.jpg');
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /image\/jpeg/);
+  for (const bad of ['/shots/..%2Fapp.js', '/shots/nope.jpg', '/shots/composer.png']) assert.notEqual((await fetch(base + bad)).status, 200, bad);
+});

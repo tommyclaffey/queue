@@ -318,6 +318,14 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
       return createReadStream(f).pipe(res);
     }
+    // Screenshots for the phone screen (public/shots). Fixed names only.
+    const shot = req.method === 'GET' && /^\/shots\/([a-z]+)\.jpg$/.exec(url.pathname);
+    if (shot) {
+      const f = fileIn(join(root, 'public', 'shots'), `${shot[1]}.jpg`);
+      if (!f) return send(res, 404, { error: 'not found' });
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+      return createReadStream(f).pipe(res);
+    }
     if (hosted && !me) {
       const name = url.pathname === '/' ? 'login.html' : url.pathname.slice(1);
       if (req.method === 'GET' && LOGIN_FILES.has(name)) {

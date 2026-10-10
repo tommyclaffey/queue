@@ -11,6 +11,8 @@
 <script>
   // Apply the saved theme before first paint (no flash).
   (function () { var t = localStorage.getItem('queue-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; })();
+  // On a phone, Queue shows a "best on a computer" screen first, unless you already chose "Open it here anyway".
+  try { if (sessionStorage.getItem('queue-phone-ok')) document.documentElement.classList.add('phone-ok'); } catch (e) {}
 </script>
 </head>
 <body>
@@ -39,6 +41,7 @@
     <section class="content" id="content" tabindex="-1"></section>
   </main>
 </div>
+<div class="phone-gate" id="phoneGate" role="main" aria-live="polite"></div>
 <div class="modal-root" id="modalRoot"></div>
 <div class="toast-root" id="toastRoot" role="status" aria-live="polite"></div>
 <script src="/app.js"></script>

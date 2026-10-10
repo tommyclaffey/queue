@@ -325,7 +325,7 @@ function renderChrome() {
   if (me) $('#me').replaceChildren(avatarEl(me, 'av-md'), el('div', { class: 'who' }, el('b', {}, me.name), el('div', { class: 'small muted' }, me.role)), el('a', { class: 'ico faint', href: '#/settings', title: 'Settings', 'aria-label': 'Settings', html: svgIcon('settings') }));
   const note = $('#demoNote');
   note?.classList.toggle('hidden', !S.extras?.public);
-  if (S.extras?.public) note.replaceChildren(el('b', {}, 'Live demo'), el('div', {}, `Click anything: nothing posts anywhere. It resets every ${S.extras.resetHours || 3} hours.`));
+  if (S.extras?.public) note.replaceChildren(el('b', {}, 'Live demo'), el('div', {}, `Click anything: nothing posts anywhere. It resets every ${S.extras.resetHours || 3} hours.`), el('button', { type: 'button', class: 'link small note-link', on: { click: showWelcome } }, 'Show the welcome tour'));
   const used = S.storage?.totalBytes || 0;
   $('#heartbeat').replaceChildren(
     el('div', { class: 'row' }, el('span', { class: 'dot ok', style: 'width:8px;height:8px' }), 'Scheduler running'),
@@ -1164,9 +1164,65 @@ let dragging = false;
 document.addEventListener('dragstart', () => { dragging = true; });
 document.addEventListener('dragend', () => { dragging = false; });
 document.addEventListener('drop', () => { dragging = false; });
+// ---------------------------------------------------------------- phone screen + welcome card
+// Queue is a desktop app (the phone layout comes later). On a phone it shows what Queue is, three
+// screenshots, and a way to send the link to a computer, instead of a squeezed sidebar.
+const isPhone = () => matchMedia('(max-width: 760px)').matches && !document.documentElement.classList.contains('phone-ok');
+function renderPhoneGate() {
+  const gate = $('#phoneGate'); if (!gate) return;
+  const demo = isDemo();
+  const link = location.origin + '/';
+  const shots = [['dashboard', 'Plan the week across every account'], ['composer', 'One video, tailored to each platform'], ['quality', 'Proof your quality survived']];
+  const status = el('div', { class: 'small muted', role: 'status' });
+  const send = async () => {
+    if (navigator.share) { try { await navigator.share({ title: 'Queue', text: 'Queue, a social media scheduler (open on a computer)', url: link }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+    location.href = `mailto:?subject=${encodeURIComponent('Queue: open on my computer')}&body=${encodeURIComponent(link)}`;
+  };
+  const copy = async () => { try { await navigator.clipboard.writeText(link); status.textContent = 'Link copied.'; } catch { status.textContent = link; } };
+  const anyway = () => { try { sessionStorage.setItem('queue-phone-ok', '1'); } catch {} document.documentElement.classList.add('phone-ok'); gate.replaceChildren(); render(); };
+  gate.replaceChildren(el('div', { class: 'pg-inner' },
+    el('div', { class: 'pg-logo' }, el('span', { class: 'logo-mark' }, el('span', { html: '<svg viewBox="0 0 24 24" width="12" height="12"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></svg>' })), el('span', { class: 'logo-word' }, 'Queue'), demo ? el('span', { class: 'demo-tag' }, 'Demo') : null),
+    el('h1', { class: 'pg-title' }, 'Queue is made for a bigger screen'),
+    el('p', { class: 'pg-lede' }, demo
+      ? 'Queue is a social media scheduler that keeps your videos looking the way you made them. It runs on a computer, so open this link on a laptop or desktop to try the live demo.'
+      : 'Queue\u2019s phone layout is on the way. For now, open it on a computer.'),
+    demo ? el('div', { class: 'pg-shots', tabindex: '0', 'aria-label': 'Screenshots of Queue' }, ...shots.map(([f, cap]) => el('figure', {}, el('a', { href: `/shots/${f}.jpg`, target: '_blank', rel: 'noopener', 'aria-label': `${cap} (full size)` }, el('img', { src: `/shots/${f}.jpg`, alt: cap, loading: 'lazy', width: 1200, height: 781 })), el('figcaption', { class: 'small muted' }, cap)))) : null,
+    el('div', { class: 'pg-actions' }, btn('Send this link to my computer', 'primary', send), btn('Copy link', 'secondary', copy), status, btn('Open it here anyway', 'ghost', anyway)),
+    demo ? el('p', { class: 'small muted pg-foot' }, 'Designed by ', el('a', { class: 'link', href: 'https://www.tommyclaffey.com', target: '_blank', rel: 'noopener' }, 'Tommy Claffey')) : null));
+}
+
+// The demo's welcome card: what Queue is, who you are in it, and four things to try. Once per browser.
+const WELCOME_KEY = 'queue-welcome-v1';
+function showWelcome() {
+  try { localStorage.setItem(WELCOME_KEY, '1'); } catch {}
+  const firstPost = () => [...(S.allPosts || S.posts)].filter(upcoming).sort((a, b) => a.publishAt.localeCompare(b.publishAt))[0];
+  const me = meMember();
+  modal((m, close) => {
+    m.classList.add('welcome-card');
+    const go = (fn) => () => { close(); fn(); };
+    const tries = [
+      ['Open a scheduled post', 'Every platform it\u2019s going to, what happened so far, and the quality check', go(() => { const p = firstPost(); location.hash = p ? `#/post/${p.id}` : '#/queue'; })],
+      ['Switch accounts', 'A creator, a coffee shop, a church, a band and a nonprofit, from the card at the top left', go(() => setTimeout(() => $('#account')?.click(), 80))],
+      ['Make a post', 'Pick a clip, preview it on each platform, then Schedule or Post now', go(() => { location.hash = '#/new'; })],
+      ['Check the quality', 'Your original next to what Instagram serves, scored frame by frame', go(() => { location.hash = '#/quality'; })],
+    ];
+    m.append(el('span', { class: 'hl-label' }, 'Live demo'), el('h2', { class: 'h2' }, 'Welcome to Queue'),
+      el('p', { class: 'welcome-lede' }, 'A social media scheduler that keeps your video quality. Queue checks every upload against each platform\u2019s rules, fixes only what it has to, and posts on time.'),
+      el('p', { class: 'small muted' }, me ? `You\u2019re ${me.name}, who runs social for five accounts at ${S.extras.account.name}. Everyone here is made up, and nothing posts anywhere.` : 'Everyone here is made up, and nothing posts anywhere.'),
+      el('div', { class: 'label', style: 'margin-top:6px;color:var(--text-secondary)' }, 'Try these'),
+      el('ol', { class: 'tour-list' }, ...tries.map(([t, sub, fn], i) => el('li', {}, el('button', { type: 'button', class: 'tour-item', on: { click: fn } }, el('span', { class: 'tour-n', 'aria-hidden': 'true' }, String(i + 1)), el('span', { class: 'tour-txt' }, el('b', {}, t), el('span', { class: 'small muted' }, sub)), el('span', { class: 'ico faint', html: svgIcon('chevR') }))))),
+      el('div', { class: 'foot' }, el('span', { class: 'small muted', style: 'flex:1' }, 'Designed by ', el('a', { class: 'link', href: 'https://www.tommyclaffey.com', target: '_blank', rel: 'noopener' }, 'Tommy Claffey')), btn('Start exploring', 'primary', close)));
+  });
+}
+
+// Narrowing a desktop window to phone width: show the phone screen then too.
+matchMedia('(max-width: 760px)').addEventListener('change', () => { if (isPhone() && !$('#phoneGate')?.firstChild) renderPhoneGate(); });
 (async function boot() {
   try { await load(); } catch (e) { toast(e.message, true); }
+  if (isPhone()) renderPhoneGate();
   if (!location.hash) location.hash = '#/dashboard'; else render();
+  let seen = true; try { seen = !!localStorage.getItem(WELCOME_KEY); } catch {}
+  if (isDemo() && !seen && !isPhone()) setTimeout(showWelcome, 400);
   setInterval(async () => {
     // Don't redraw under someone typing in a search box or mid-drag on the calendar.
     const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
