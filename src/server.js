@@ -27,7 +27,7 @@ import { promisify } from 'node:util';
 import { readFileSync, writeFileSync, copyFileSync } from 'node:fs';
 
 const TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/mp4' };
-const PUBLIC_FILES = new Set(['index.html', 'styles.css', 'app.js', 'pages.js']);
+const PUBLIC_FILES = new Set(['index.html', 'styles.css', 'app.js', 'pages.js', 'tour.js']);
 const LOGIN_FILES = new Set(['login.html', 'styles.css']); // all a signed-out visitor can load (hosted mode)
 
 export function startServer({ root, queue, ig, files = null, tokens = null, port = 4400, stageWindowMin = 120, lateLimitMin = 120, notify = () => {}, log = console.log, tickMs = 30_000, mediaDir = join(root, 'media'), dataDir = join(root, 'data'), demo = null, notifyOn = true, envFile = join(root, '.env'), makeIg = (o) => new InstagramClient(o), hosted = false, password = null, host = null, publicOrigin = null, ownerEmail = null, oauthFetch = fetch }) {

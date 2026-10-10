@@ -23,11 +23,11 @@
       <a class="logo" href="#/dashboard" aria-label="Queue home">
         <span class="logo-mark"><svg viewBox="0 0 24 24" width="12" height="12"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></svg></span>
         <span class="logo-word">Queue</span>
-        <span class="demo-tag hidden" id="demoTag" title="Sample account and content. Nothing here ever posts.">Demo</span>
       </a>
+      <button class="demo-tag hidden" id="demoTag" type="button" data-tour="demo" title="Sample account and content. Click for the welcome card and the tour." aria-label="Demo account: show the welcome card and tour">Demo</button>
       <button class="theme-btn" id="themeBtn" type="button" aria-label="Switch to dark mode" title="Switch to dark mode"></button>
     </div>
-    <div class="account" id="account"></div>
+    <div class="account" id="account" data-tour="accounts"></div>
     <a class="btn primary block" href="#/new" id="newPostBtn"><span class="ico" data-icon="plus"></span>New post</a>
     <div class="nav-label">Workspace</div>
     <nav class="nav" id="nav" aria-label="Workspace"></nav>
@@ -46,5 +46,6 @@
 <div class="toast-root" id="toastRoot" role="status" aria-live="polite"></div>
 <script src="/app.js"></script>
 <script src="/pages.js"></script>
+<script src="/tour.js"></script>
 </body>
 </html>

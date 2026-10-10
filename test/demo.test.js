@@ -179,3 +179,15 @@ test('demo plan: every account has two weeks of posts, weekday posts land on the
     }
   }
 });
+
+test('demo tour: tour.js is served, and every stop points at a [data-tour] marker that exists', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = (f) => readFileSync(join(ROOT, 'public', f), 'utf8');
+  const tour = src('tour.js');
+  const targets = [...tour.matchAll(/target: '([\w-]+)'/g)].map((m) => m[1]);
+  assert.ok(targets.length >= 8, 'the tour has its stops');
+  const markup = ['index.html', 'app.js', 'pages.js'].map(src).join('\n');
+  for (const t of targets) assert.match(markup, new RegExp(`data-tour(=|': )["']${t}["']`), `marker for "${t}"`);
+  assert.match(src('index.html'), /<script src="\/tour\.js"><\/script>/);
+  assert.match(readFileSync(join(ROOT, 'src', 'server.js'), 'utf8'), /PUBLIC_FILES = new Set\([^)]*'tour\.js'/);
+});

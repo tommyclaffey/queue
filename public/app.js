@@ -315,6 +315,7 @@ function renderChrome() {
     acct.replaceChildren(avatarEl(b || { name: S.extras.account.name, avatar: S.extras.account.avatar }, 'avatar'), el('div', { class: 'who' }, el('b', {}, b ? b.name : S.extras.account.name), el('div', { class: 'small muted' }, b ? `@${b.handle} · ${b.type}` : `All ${brands().length} accounts`)), el('span', { class: 'ico faint', html: svgIcon('chevD') }));
   }
   $('#demoTag')?.classList.toggle('hidden', !isDemo());
+  if ($('#demoTag')) $('#demoTag').onclick = showWelcome;
   if (!switcher) acct.replaceChildren(...[
     S.extras?.account?.avatar ? el('img', { class: 'avatar', src: imgUrl(S.extras.account.avatar), alt: '' }) : el('div', { class: 'avatar' }, live ? st.account.slice(0, 1).toUpperCase() : 'Q'),
     el('div', { class: 'who' }, el('b', {}, live ? `@${st.account}` : 'Not connected'), el('div', { class: 'small muted row', style: 'gap:5px' }, el('span', { class: 'dot ' + (live ? 'ok' : st?.accountError ? 'bad' : 'warn') }), live ? 'Instagram · Live' : st?.accountError ? 'Connection problem' : 'Dry run — nothing posts')),
@@ -325,7 +326,7 @@ function renderChrome() {
   if (me) $('#me').replaceChildren(avatarEl(me, 'av-md'), el('div', { class: 'who' }, el('b', {}, me.name), el('div', { class: 'small muted' }, me.role)), el('a', { class: 'ico faint', href: '#/settings', title: 'Settings', 'aria-label': 'Settings', html: svgIcon('settings') }));
   const note = $('#demoNote');
   note?.classList.toggle('hidden', !S.extras?.public);
-  if (S.extras?.public) note.replaceChildren(el('b', {}, 'Live demo'), el('div', {}, `Click anything: nothing posts anywhere. It resets every ${S.extras.resetHours || 3} hours.`), el('button', { type: 'button', class: 'link small note-link', on: { click: showWelcome } }, 'Show the welcome tour'));
+  if (S.extras?.public) note.replaceChildren(el('b', {}, 'Live demo'), el('div', {}, `Click anything: nothing posts anywhere. It resets every ${S.extras.resetHours || 3} hours.`), el('button', { type: 'button', class: 'link small note-link', on: { click: startTour } }, 'Take the tour'));
   const used = S.storage?.totalBytes || 0;
   $('#heartbeat').replaceChildren(
     el('div', { class: 'row' }, el('span', { class: 'dot ok', style: 'width:8px;height:8px' }), 'Scheduler running'),
@@ -386,7 +387,7 @@ VIEWS.dashboard = (c) => {
   const next = up[0];
   const kpi = (label, value, sub, cls = '') => el('div', { class: 'card kpi' }, el('div', { class: 'label' }, label), el('div', { class: 'data ' + cls }, value), el('div', { class: 'small muted' }, sub));
   const nextCard = el('div', { class: 'card kpi row', style: 'gap:12px' }, next ? thumb(next, 'thumb') : null, el('div', {}, el('div', { class: 'label' }, 'Next post'), el('div', { class: 'data' }, next ? fmtTime(new Date(next.publishAt)) : '—'), el('div', { class: 'small muted' }, next ? `${fmtDay(new Date(next.publishAt))} · ${countdown(new Date(next.publishAt))}` : 'Nothing scheduled')));
-  c.append(el('div', { class: 'grid kpis' }, nextCard, kpi('Scheduled', String(week.length), 'Next 7 days'), kpi('Needs you', String(need.length), need.length ? `${need.filter((p) => statusOf(p) === 'missed').length} missed · ${need.filter((p) => statusOf(p) === 'failed').length} failed` : 'All clear', need.length ? 'warn' : ''), qualityKpi(kpi, posted7)));
+  c.append(el('div', { class: 'grid kpis', 'data-tour': 'kpis' }, nextCard, kpi('Scheduled', String(week.length), 'Next 7 days'), kpi('Needs you', String(need.length), need.length ? `${need.filter((p) => statusOf(p) === 'missed').length} missed · ${need.filter((p) => statusOf(p) === 'failed').length} failed` : 'All clear', need.length ? 'warn' : ''), qualityKpi(kpi, posted7)));
 
   const main = el('div', { class: 'grid dash-main', style: 'margin-top:16px' });
   // Up next
@@ -400,7 +401,7 @@ VIEWS.dashboard = (c) => {
   }
   // Right column
   const right = el('div', { class: 'stack' });
-  const att = el('div', { class: 'card stack', style: 'gap:10px' }, el('h2', { class: 'h3' }, 'Needs your attention'));
+  const att = el('div', { class: 'card stack', style: 'gap:10px', 'data-tour': 'attention' }, el('h2', { class: 'h3' }, 'Needs your attention'));
   if (!need.length) att.append(el('div', { class: 'muted small' }, 'Nothing needs you. Missed or failed posts will show up here with a one-click fix.'));
   for (const p of need) {
     const s = statusOf(p);
@@ -689,7 +690,7 @@ VIEWS.calendar = async (c) => {
   const unit = calView === 'week' ? 'week' : 'month';
   topbar('Calendar', null, [seg, btn(el('span', { class: 'ico', html: svgIcon('chevL') }), 'ghost', step(-1), { 'aria-label': `Previous ${unit}` }), el('b', { style: 'min-width:130px;text-align:center;font-weight:500' }, label), btn(el('span', { class: 'ico', html: svgIcon('chevR') }), 'ghost', step(1), { 'aria-label': `Next ${unit}` }), btn('Today', 'secondary', () => { calCursor = startOfDay(new Date()); render(); }), btn('New post', 'primary', () => (location.hash = '#/new'))]);
 
-  const main = el('div', { style: 'min-width:0' });
+  const main = el('div', { style: 'min-width:0', 'data-tour': 'calendar' });
   const today = new Date();
   if (calView === 'month') {
     const grid = el('div', { class: 'cal' }, ...['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => el('div', { class: 'dow' }, d)));
@@ -1211,7 +1212,8 @@ function showWelcome() {
       el('p', { class: 'small muted' }, me ? `You\u2019re ${me.name}, who runs social for five accounts at ${S.extras.account.name}. Everyone here is made up, and nothing posts anywhere.` : 'Everyone here is made up, and nothing posts anywhere.'),
       el('div', { class: 'label', style: 'margin-top:6px;color:var(--text-secondary)' }, 'Try these'),
       el('ol', { class: 'tour-list' }, ...tries.map(([t, sub, fn], i) => el('li', {}, el('button', { type: 'button', class: 'tour-item', on: { click: fn } }, el('span', { class: 'tour-n', 'aria-hidden': 'true' }, String(i + 1)), el('span', { class: 'tour-txt' }, el('b', {}, t), el('span', { class: 'small muted' }, sub)), el('span', { class: 'ico faint', html: svgIcon('chevR') }))))),
-      el('div', { class: 'foot' }, el('span', { class: 'small muted', style: 'flex:1' }, 'Designed and engineered by ', el('a', { class: 'link', href: 'https://www.tommyclaffey.com', target: '_blank', rel: 'noopener' }, 'Tommy Claffey')), btn('Start exploring', 'primary', close)));
+      el('div', { class: 'foot' }, btn('Explore on my own', 'ghost', close), btn('Take the tour', 'primary', () => { close(); startTour(); })),
+      el('p', { class: 'small muted welcome-credit' }, 'Designed and engineered by ', el('a', { class: 'link', href: 'https://www.tommyclaffey.com', target: '_blank', rel: 'noopener' }, 'Tommy Claffey')));
   });
 }
 

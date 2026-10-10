@@ -57,7 +57,7 @@ VIEWS.post = async (c, id) => {
     brandOf(p) ? el('div', { class: 'row by-line', style: 'gap:8px' }, avatarEl(brandOf(p), 'av-sm'), el('div', { class: 'small' }, el('span', { class: 'muted' }, 'For '), el('b', { style: 'font-weight:600' }, brandOf(p).name), el('span', { class: 'muted' }, ` · @${brandOf(p).handle}`))) : null, p.permalink ? el('a', { class: 'small faint link', href: p.permalink, target: '_blank', rel: 'noopener' }, p.permalink.replace(/^https?:\/\/(www\.)?/, '').slice(0, 34) + '…') : el('div', { class: 'small faint' }, postMeta(p)));
 
   // ---- middle: destinations + what happened
-  const dests = el('div', { class: 'card flush' }, el('div', { class: 'row', style: 'padding:16px 18px 6px' }, el('h2', { class: 'h3' }, 'Destinations')));
+  const dests = el('div', { class: 'card flush', 'data-tour': 'destinations' }, el('div', { class: 'row', style: 'padding:16px 18px 6px' }, el('h2', { class: 'h3' }, 'Destinations')));
   for (const d of (isDemo() && p.destinations?.length ? p.destinations : [{ platform: 'instagram', format: p.kind === 'story' ? 'Story' : p.images?.length > 1 ? 'Carousel' : p.images?.length ? 'Photo' : 'Reel', status: s === 'posted' ? 'posted' : p.status }])) {
     const [txt, cls] = d.status === s ? [`${GLYPH[s]} ${STATUS[s]}`, s] : DEST[d.status] || DEST.queued;
     const v = d.vmaf ?? vmafOf(p, d.platform);
@@ -72,7 +72,7 @@ VIEWS.post = async (c, id) => {
     if (/^file link:/.test(l.msg)) continue;
     tl.append(el('div', { class: 'tl' }, el('div', { class: 'tl-dot' + (/Failed|Missed/.test(t) ? ' warn' : '') }), el('div', { style: 'flex:1;min-width:0' }, el('div', { class: 'row', style: 'align-items:baseline' }, el('b', { style: 'flex:1;font-weight:500' }, t), el('span', { class: 'small faint' }, new Date(l.at).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))), sub ? el('div', { class: 'small muted' }, sub) : null)));
   }
-  const middle = el('div', { class: 'stack', style: 'gap:16px' }, dests, el('div', { class: 'card' }, el('h2', { class: 'h3', style: 'margin-bottom:12px' }, 'What happened'), tl));
+  const middle = el('div', { class: 'stack', style: 'gap:16px' }, dests, el('div', { class: 'card', 'data-tour': 'history' }, el('h2', { class: 'h3', style: 'margin-bottom:12px' }, 'What happened'), tl));
 
   // ---- right: quality
   const right = el('div', { class: 'stack', style: 'gap:16px' });
@@ -175,7 +175,7 @@ VIEWS.quality = async (c, compId) => {
   A.addEventListener('loadedmetadata', () => seek(r.worstAt || 0), { once: true });
   B.addEventListener('loadedmetadata', () => { B.currentTime = r.worstAt || 0; }, { once: true });
 
-  const viewer = el('div', { class: 'card stack', style: 'gap:14px' }, el('div', { class: 'row' }, head, modes), stage,
+  const viewer = el('div', { class: 'card stack', style: 'gap:14px', 'data-tour': 'lab' }, el('div', { class: 'row' }, head, modes), stage,
     el('div', { class: 'stack', style: 'gap:6px' }, chart, el('div', { class: 'row small faint' }, playBtn, el('span', {}, '0:00'), el('span', { style: 'flex:1;text-align:center' }, r.worstAt != null ? `▲ worst: ${fmtClock(r.worstAt)} · VMAF ${r.vmafWorst}` : ''), el('span', {}, fmtClock(dur)))));
 
   // ---- right column
@@ -190,7 +190,7 @@ VIEWS.quality = async (c, compId) => {
     const a = sameApp.result.vmaf, b = sameQ.result.vmaf;
     const word = (v) => (v >= 93 ? 'identical' : v >= 85 ? 'good' : v >= 70 ? 'noticeable' : 'heavy loss');
     const row = (k, v, strong) => el('div', { class: 'stack', style: 'gap:4px' }, el('div', { class: 'row' }, el('span', { class: 'small', style: 'flex:1' }, k), el('b', { class: 'mono small' }, String(v))), el('div', { class: 'bar' + (strong ? '' : ' soft') }, el('span', { style: `width:${v}%` })));
-    side.append(el('div', { class: 'card stack', style: 'gap:10px' }, el('h2', { class: 'h3' }, 'Same clip, two routes'), row(`${PNAME[sameApp.platform]} app`, a), row('Through Queue', b, true),
+    side.append(el('div', { class: 'card stack', style: 'gap:10px', 'data-tour': 'routes' }, el('h2', { class: 'h3' }, 'Same clip, two routes'), row(`${PNAME[sameApp.platform]} app`, a), row('Through Queue', b, true),
       el('div', { class: 'inset small', style: 'font-weight:500' }, word(a) === word(b) ? (b - a >= 0 ? `+${(b - a).toFixed(1)} VMAF — closer to your original` : `${(b - a).toFixed(1)} VMAF — the app route kept more this time`) : `${b - a >= 0 ? '+' : ''}${(b - a).toFixed(1)} VMAF — from "${word(a)}" to "${word(b)}"`),
       el('div', { class: 'small faint' }, 'The same clip posted both ways, each compared with the original.')));
   }
@@ -463,7 +463,7 @@ function videoComposer(c) {
   const coverLbl = el('span', { class: 'small muted', style: 'flex:1' }, C.coverMs == null ? 'Cover: Instagram picks' : `Cover: ${(C.coverMs / 1000).toFixed(1)}s`);
   const coverRow = el('div', { class: 'row' }, coverLbl, btn('Use this frame', 'secondary small', () => { C.coverMs = Math.round(video.currentTime * 1000); coverLbl.textContent = `Cover: ${video.currentTime.toFixed(1)}s`; toast('Cover frame set'); }));
   const playRow = el('div', { class: 'row small muted', style: 'gap:8px;margin-top:8px' }, btn('Pause', 'secondary small', (e) => { if (video.paused) { video.play(); e.target.textContent = 'Pause'; } else { video.pause(); e.target.textContent = 'Play'; } }), el('span', {}, 'Pause on the frame you want as the cover.'));
-  grid.append(el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'label' }, 'Preview as'), ptabs, previewToggles(drawPreview), label2, phoneWrap, note, el('div', { class: 'card', style: 'padding:12px' }, coverRow, playRow)));
+  grid.append(el('div', { class: 'stack', style: 'gap:10px', 'data-tour': 'preview' }, el('div', { class: 'label' }, 'Preview as'), ptabs, previewToggles(drawPreview), label2, phoneWrap, note, el('div', { class: 'card', style: 'padding:12px' }, coverRow, playRow)));
 
   // destinations + caption + when
   const avail = multi ? VIDEO_DESTS : ['instagram', 'youtubeshorts', 'tiktok', 'facebook', 'linkedin'];
@@ -518,7 +518,7 @@ function tailoredPanel(up, on) {
   const nat = on.filter((p) => ['youtubeshorts', 'facebook'].includes(p)).map((p) => PNAME[p].replace(' Shorts', ''));
   const atQ = on.filter((p) => ['instagram', 'linkedin', 'threads'].includes(p)).map((p) => PNAME[p]);
   const det = el('details', { class: 'qdetails' }, el('summary', { class: 'small' }, 'Full quality check'), qualityPanel(up));
-  return el('div', { class: 'card stack', style: 'gap:12px' }, el('h2', { class: 'h3' }, 'One source, tailored versions'),
+  return el('div', { class: 'card stack', style: 'gap:12px', 'data-tour': 'versions' }, el('h2', { class: 'h3' }, 'One source, tailored versions'),
     el('div', { class: 'inset' }, el('span', { class: 'hl-label' }, 'Original file'), el('div', { class: 'mono small' }, `${v.width}×${v.height} · ${hdr ? 'HDR (HLG)' : 'SDR'} · ${mbps} Mbps`)),
     el('div', {}, ...rows.map(([p, spec, what, col]) => el('div', { class: 'tv-row' }, badge(p), el('div', {}, el('div', { class: 'mono small' }, spec), el('div', { class: 'small', style: col ? `color:var(--${col})` : '' }, what))))),
     up.result.needsTrim ? el('div', { class: 'issue error' }, 'Needs a trim: platforms accept 3 seconds to 15 minutes.') : el('div', { class: 'boxed small' }, `${files} file${files === 1 ? '' : 's'} total. Every platform gets at most one encode from your original.`),
