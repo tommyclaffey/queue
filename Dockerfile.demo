@@ -24,6 +24,14 @@ ARG DEMO_ASSETS=https://github.com/tommyclaffey/queue/releases/download/demo-ass
 ARG DEMO_ASSETS_SHA256=03bdd3fee83e7ea03a08e42fc9b397ec5d6c1dd715762d01f2fb51d71878fb81
 RUN set -e; cd /tmp; curl -fsSL --retry 3 -o assets.tar "$DEMO_ASSETS"; echo "$DEMO_ASSETS_SHA256  assets.tar" | sha256sum -c -; \
     tar -xf assets.tar -C /app; rm -f assets.tar /app/demo/assets/harbor-logo.jpg /app/demo/assets/avatar.jpg; find /app/demo -name '._*' -delete
+# The two-week content plan: 24 more photos, 11 more clips, and the real VMAF scores of the
+# planned posts that already went out (quality.json + what Instagram served).
+ARG DEMO_PLAN=https://github.com/tommyclaffey/queue/releases/download/demo-assets-v3
+ARG DEMO_PLAN_PARTS="aa ab ac"
+ARG DEMO_PLAN_SHA256=7b65b1db0e9f8f33469822bddce77ad19a5fac7e1f8316faa200ad840c07a682
+RUN set -e; cd /tmp; for p in $DEMO_PLAN_PARTS; do curl -fsSL --retry 3 -o "plan-$p" "$DEMO_PLAN/queue-demo-assets-v3.part-$p"; done; \
+    cat plan-* > plan.tar; echo "$DEMO_PLAN_SHA256  plan.tar" | sha256sum -c -; \
+    tar -xf plan.tar -C /app; rm -f plan-* plan.tar; find /app/demo -name '._*' -delete
 COPY package.json ./
 COPY bin ./bin
 COPY src ./src

@@ -9,7 +9,7 @@ import { startServer } from '../src/server.js';
 import { Queue } from '../src/queue.js';
 import { InstagramClient } from '../src/instagram.js';
 import { timeline } from '../src/quality.js';
-import { DEMO_ACCOUNT, DEMO_PLATFORMS, DEMO_TEAM, DEMO_BRANDS } from '../src/demo.js';
+import { DEMO_ACCOUNT, DEMO_PLATFORMS, DEMO_TEAM, DEMO_BRANDS, PLAN, planDay } from '../src/demo.js';
 import { tmp, cleanup, makeVideo } from './helpers.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -154,4 +154,28 @@ test('phone-screen screenshots are served by name, and nothing else from that fo
   assert.equal(r.status, 200);
   assert.match(r.headers.get('content-type'), /image\/jpeg/);
   for (const bad of ['/shots/..%2Fapp.js', '/shots/nope.jpg', '/shots/composer.png']) assert.notEqual((await fetch(base + bad)).status, 200, bad);
+});
+
+test('demo plan: every account has two weeks of posts, weekday posts land on their weekday, formats fit their platforms', () => {
+  assert.deepEqual(Object.keys(PLAN).sort(), DEMO_BRANDS.map((b) => b.id).sort());
+  const team = new Set(DEMO_TEAM.members.filter((m) => !m.invited && m.role !== 'Viewer').map((m) => m.id));
+  for (let k = 0; k < 7; k++) { // run it as if today were each day of the week
+    const now = new Date(2026, 9, 4 + k, 10);
+    for (const [brand, { by, v, p, posts }] of Object.entries(PLAN)) {
+      assert.ok(by.every((id) => team.has(id)), `${brand}: scheduled by a real teammate`);
+      const days = posts.map(([d]) => planDay(d, now));
+      assert.ok(days.every((d) => d !== 0 && d >= -7 && d <= 14), `${brand}: inside last week → two weeks out`);
+      assert.ok(days.filter((d) => d > 0).length >= 6, `${brand}: two weeks of upcoming posts`);
+      assert.ok(days.filter((d) => d < 0).length >= 3, `${brand}: last week already posted`);
+      posts.forEach(([day, , , kind, media, , platforms], i) => {
+        if (typeof day === 'string') {
+          const at = new Date(now); at.setDate(at.getDate() + days[i]);
+          assert.equal(at.getDay(), { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 }[day.slice(0, 3)], `${brand} #${i + 1}: lands on ${day}`);
+        }
+        const on = platforms || (kind === 'v' ? v : p);
+        if (kind !== 'v') assert.ok(!on.includes('youtubeshorts'), `${brand} #${i + 1}: no photos on YouTube Shorts`);
+        if (kind === 'v') assert.equal(typeof media, 'string'); else assert.ok(Array.isArray(media) && media.length);
+      });
+    }
+  }
 });

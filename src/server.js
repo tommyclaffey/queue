@@ -221,7 +221,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
   // The public demo (its own link on Railway): anyone may look around. Nothing posts anyway, but
   // anything that costs real CPU or disk (uploads, re-encodes, quality measuring) is switched off.
   const publicDemo = !!demo?.public;
-  const DEMO_FULL = 80; // posts — the demo resets itself every few hours
+  const DEMO_FULL = 140; // posts — the demo resets itself every few hours
   // The demo studio's account a new post is for (falls back to the first one).
   const demoBrand = (b) => (demo?.brands?.length ? (demo.brands.some((x) => x.id === b) ? b : demo.brands[0].id) : null);
   const allowedOrigin = (o) => !o || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o);

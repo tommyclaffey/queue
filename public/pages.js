@@ -195,7 +195,7 @@ VIEWS.quality = async (c, compId) => {
       el('div', { class: 'small faint' }, 'The same clip posted both ways, each compared with the original.')));
   }
   const past = el('div', { class: 'card stack', style: 'gap:2px' }, el('h2', { class: 'h3', style: 'margin-bottom:6px' }, 'Past comparisons'));
-  for (const q of comps.slice(0, 10)) past.append(el('button', { class: 'past' + (q.id === sel.id ? ' on' : ''), on: { click: () => (location.hash = `#/quality/${q.id}`) } }, el('span', { style: 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, label(q)), el('b', { class: 'mono small' }, String(q.result.vmaf))));
+  for (const q of comps.slice(0, 10)) past.append(el('button', { class: 'past-cmp' + (q.id === sel.id ? ' on' : ''), on: { click: () => (location.hash = `#/quality/${q.id}`) } }, el('span', { style: 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, label(q)), el('b', { class: 'mono small' }, String(q.result.vmaf))));
   side.append(past);
 
   c.append(el('div', { class: 'lab' }, el('div', { class: 'stack', style: 'gap:16px;min-width:0' }, pickers, viewer), side));

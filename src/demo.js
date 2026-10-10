@@ -37,7 +37,20 @@ const VIDEOS = [
   ['q-and-a.mov', 'podcast', 10, '4k', 'in'],
   ['b-roll-01.mov', 'city', 8, '4k', 'out'],
   ['drums-story.mp4', 'drums', 10, 'clean', 'in'],
+  // The two-week plan (one clip set per account)
+  ['roasting.mp4', 'beans-roast', 8, 'clean', 'in'],
+  ['cafe-open.mp4', 'cafe-morning', 8, 'clean', 'out'],
+  ['track-day.mp4', 'track', 8, 'clean', 'in'],
+  ['rehearsal.mp4', 'stage-gear', 8, 'clean', 'in'],
+  ['studio-day.mp4', 'studio-mic', 8, 'clean', 'up'],
+  ['van-life.mp4', 'van', 8, 'clean', 'out'],
+  ['choir.mp4', 'choir', 8, 'clean', 'in'],
+  ['candlelight.mp4', 'candles', 8, 'clean', 'in'],
+  ['mural.mp4', 'mural', 8, 'clean', 'up'],
+  ['pottery.mp4', 'pottery', 8, 'clean', 'in'],
+  ['gallery-night.mp4', 'gallery', 8, 'clean', 'out'],
 ];
+const FIX_OF = { 'worship-night.mov': 'hdr', 'pour-over-60.mov': 'hdr', 'espresso-dialin.mov': 'hdr', 'coffee-bts.mp4': 'remux', 'open-mic.mp4': 'audio-only', 'q-and-a.mov': 'reencode', 'b-roll-01.mov': 'reencode' };
 
 // A made-up social media studio, so the demo can be shared publicly and shows who Queue is for:
 // it runs five accounts — a creator, a business, a church, a band and a nonprofit. Every name is
@@ -132,18 +145,19 @@ function seedPosts(media, assets) {
   const dayStart = (() => { const h = now.getHours(); if (h >= 7 && h < 20) return now; const d = new Date(now); if (h >= 20) d.setDate(d.getDate() + 1); d.setHours(7, 0, 0, 0); return d; })();
   const later = (hours) => { const d = new Date(dayStart.getTime() + hours * 3600e3); d.setMinutes(d.getMinutes() < 30 ? 30 : 60, 0, 0); return d.toISOString(); };
   const ago = (iso, mins) => new Date(new Date(iso).getTime() - mins * 60e3).toISOString();
+  const mid = (id) => `1789${/^d\d+$/.test(id) ? id.slice(1) : [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 1e8, 7)}`;
   const FORMAT = { instagram: 'Reel', youtubeshorts: 'Short', tiktok: 'Video', facebook: 'Reel', linkedin: 'Video' };
   const post = (id, file, caption, publishAt, status, platforms, fix, extra = {}) => {
     const log = [{ at: ago(publishAt, 60 * 26), msg: 'queued' }, { at: ago(publishAt, 60 * 26 - 1), msg: `prepared: ${fix}` }];
     if (['staged', 'ready', 'published'].includes(status)) log.push({ at: ago(publishAt, 120), msg: 'staged rupload' });
     if (['ready', 'published'].includes(status)) log.push({ at: ago(publishAt, 117), msg: 'Instagram finished processing' });
-    if (status === 'published') log.push({ at: new Date(new Date(publishAt).getTime() + 12e3).toISOString(), msg: `published 1789${id.slice(1)} (12s after target)` });
+    if (status === 'published') log.push({ at: new Date(new Date(publishAt).getTime() + 12e3).toISOString(), msg: `published ${mid(id)} (12s after target)` });
     if (status === 'missed') log.push({ at: new Date(new Date(publishAt).getTime() + 5 * 3600e3).toISOString(), msg: 'missed by 5h' });
     if (status === 'failed') log.push({ at: ago(publishAt, 100), msg: "error: Instagram couldn't process the video" });
     const dest = (p) => ({ platform: p, format: FORMAT[p], status: status === 'published' ? (p === 'tiktok' ? 'drafts' : 'posted') : status === 'failed' && p !== 'instagram' ? 'scheduled' : status === 'missed' && ['youtubeshorts', 'facebook'].includes(p) ? 'posted' : status });
     return {
       id, platform: 'instagram_reels', kind: 'reel', file: file && join(media, file), source: file, caption, coverOffsetMs: null, fix,
-      publishAt, status, containerId: null, mediaId: status === 'published' ? `1789${id.slice(1)}` : null,
+      publishAt, status, containerId: null, mediaId: status === 'published' ? mid(id) : null,
       permalink: status === 'published' ? 'https://www.instagram.com/' : null, attempts: status === 'failed' ? 3 : 0,
       error: status === 'failed' ? "Instagram couldn't process the video" : status === 'missed' ? `Missed its ${new Date(publishAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} slot by 5h (Mac off or asleep). Post now, pick a new time, or remove it.` : null,
       ...(status === 'published' ? { publishedAt: new Date(new Date(publishAt).getTime() + 12e3).toISOString() } : {}),
@@ -160,7 +174,7 @@ function seedPosts(media, assets) {
     post('d04', 'open-mic.mp4', "Open mic night at Riverside: Dev's airport bit finally landed 😂 Sign-ups for next Thursday are open", at(1, 19, 15), 'queued', ['tiktok', 'instagram', 'youtubeshorts'], 'audio-only'),
     post('d05', 'pour-over-60.mov', 'Pour-over recipe in 60 seconds', at(2, 8), 'queued', ['instagram', 'tiktok', 'youtubeshorts', 'facebook'], 'hdr'),
     post('d06', 'weekly-recap.mp4', 'This week at Harbor Coffee', at(-2, 18, 30), 'published', ['instagram', 'linkedin', 'facebook'], 'none'),
-    post('d07', 'worship-night.mov', 'Sunday recap: thank you for worshipping with us this weekend 🙏', at(-3, 18, 30), 'missed', ['instagram', 'facebook'], 'hdr'),
+    post('d07', 'worship-night.mov', 'Sunday recap: thank you for worshipping with us this weekend 🙏', at(planDay('sun-', now), 18, 30), 'missed', ['instagram', 'facebook'], 'hdr'),
     post('d08', 'pour-over-60.mov', 'Pour-over recipe (v1)', at(-1, 12), 'failed', ['instagram', 'tiktok'], 'hdr'),
     post('d09', 'latte-fails.mp4', 'Latte art fails compilation ☕😅', at(10, 8), 'queued', ['instagram', 'tiktok'], 'none'),
     post('d10', 'youth-night.mov', 'Youth night recap: thanks for packing the room', at(13, 18, 30), 'queued', ['instagram', 'facebook'], 'none'),
@@ -172,24 +186,130 @@ function seedPosts(media, assets) {
     post('d18', 'tour-night-3.mov', 'Tour diary, night 3: you were LOUD 🔊', at(20, 18, 30), 'queued', ['instagram', 'youtubeshorts'], 'none'),
     post('d21', 'b-roll-01.mov', 'Night miles: 8 easy downtown before the rain 🌧️🏃‍♀️', at(6, 6, 30), 'queued', ['instagram', 'tiktok'], 'reencode'),
     post('d19', 'q-and-a.mov', "Artist Q&A: this month's resident muralist", at(4, 12), 'queued', ['instagram', 'youtubeshorts', 'linkedin'], 'reencode'),
-    post('d20', 'drums-story.mp4', 'New single "Undertow" out Friday 🌊 Pre-save, link in bio', at(5, 18), 'queued', ['instagram', 'tiktok', 'youtubeshorts'], 'none'),
+    post('d20', 'drums-story.mp4', 'New single "Undertow" is out 🌊 Stream it now, link in bio', at(5, 18), 'queued', ['instagram', 'tiktok', 'youtubeshorts'], 'none'),
   ];
   // Photo carousel + story — only the demo knows these formats so far.
   const img = (n) => (existsSync(join(assets, `${n}.jpg`)) ? `${n}.jpg` : null);
   P.push({ ...post('d13', null, 'Race week in 6 frames 📸 long run, trail sunrise, a new lens, night miles, the post-run latte and the flight to Chicago.', at(2, 9), 'queued', ['instagram', 'tiktok', 'facebook'], 'none'), kind: 'photos', images: ['runner', 'trail', 'camera', 'city', 'latte', 'airport'].map(img).filter(Boolean) });
   P.push({ ...post('d14', null, "Tonight's show 🥁", at(3, 21), 'queued', ['instagram', 'facebook'], 'none'), kind: 'story', images: ['drums', 'concert', 'youth'].map(img).filter(Boolean) });
   for (const p of P) if (p.kind !== 'reel') p.destinations = p.platforms.map((pl) => ({ platform: pl, format: p.kind === 'story' ? 'Story' : pl === 'instagram' ? 'Carousel' : pl === 'tiktok' ? 'Photo post' : pl === 'linkedin' ? 'Multi-image' : 'Multi-photo', status: 'queued' }));
+  P.push(...planPosts(now, at, post, img));
   return P;
 }
 
+// Two weeks of planned content per account (plus last week's, already posted), so the calendar
+// looks like a real studio's. Day is an offset from today, or a weekday: 'sun' = the coming
+// Sunday, 'sun+' = the one after, 'sun-' = last Sunday — so "Sunday" posts land on Sundays.
+// Kinds: v = video (Reel/Short/TikTok), p = photo (1) or carousel (2+), s = story.
+export const PLAN = {
+  harbor: { by: ['sam', 'jordan'], v: ['instagram', 'tiktok', 'facebook'], p: ['instagram', 'facebook'], posts: [
+    [-6, 7, 30, 'v', 'cafe-open.mp4', 'Doors open at 6:30. First pour of the day goes to whoever is waiting outside ☀️'],
+    ['sat-', 9, 0, 'p', ['croissant'], 'Saturday croissants are out of the oven. They are usually gone by 10 🥐'],
+    [-4, 12, 0, 's', ['espresso', 'latte', 'barista'], 'Behind the bar today ☕'],
+    [-3, 15, 0, 'v', 'roasting.mp4', 'Roast day: 40 lbs of the new Ethiopia Guji, start to finish. Notes of peach and black tea.'],
+    [1, 7, 0, 'p', ['coffee-bag', 'beans-roast', 'pourover'], 'Fresh beans, new bags. The Guji is on the shelf and on the bar this week: roaster to bag to cup in 3 photos.'],
+    [3, 7, 30, 'v', 'cafe-open.mp4', 'Morning rush, sped up 4× ☕ 212 drinks before noon.'],
+    ['sat', 9, 0, 'p', ['croissant', 'iced-coffee'], 'Saturday pairing: almond croissant + iced oat latte. $9 until 11am.'],
+    [5, 12, 0, 's', ['iced-coffee', 'latte'], 'Iced latte weather 🧊'],
+    [8, 7, 30, 'v', 'roasting.mp4', 'How we roast: first crack to cooling tray in 60 seconds 🔥'],
+    [9, 9, 0, 'p', ['barista'], 'Meet Ana, our head barista. Six years on bar, and she still pours the art on every regular\'s order. We\'re hiring two more like her.', ['instagram', 'facebook', 'linkedin']],
+    [12, 7, 30, 'p', ['cafe-morning'], 'Rainy-day seat by the window is open. Come sit a while.'],
+    [13, 15, 0, 'v', 'espresso-dialin.mov', 'Dial-in diaries: 18 g in, 38 g out, 29 seconds. This one tastes like cherry cola.', ['instagram', 'tiktok']],
+  ] },
+  jess: { by: ['sofia', 'jordan'], v: ['instagram', 'tiktok', 'youtubeshorts'], p: ['instagram', 'tiktok'], posts: [
+    [-7, 6, 30, 'v', 'track-day.mp4', 'Track session: 6 × 800 m at goal pace. Lap 5 hurt the most.'],
+    [-5, 12, 0, 'p', ['shoes'], 'Race-day shoes, 40 miles in. Full review on the channel this week.'],
+    [-3, 19, 0, 's', ['breakfast', 'runner'], 'Fuel, then miles'],
+    ['sun-', 17, 0, 'p', ['runner', 'breakfast', 'trail'], 'Last long run before the taper: 20 miles, then the biggest bowl of oats I could find 🥣'],
+    [14, 6, 30, 's', ['track', 'shoes'], 'Track day 🏃‍♀️'],
+    [3, 18, 0, 'v', 'track-day.mp4', 'What 800 m repeats actually feel like, lap by lap 😮‍💨'],
+    [4, 12, 0, 'p', ['shoes', 'track'], 'Shoe review: 3 things I love and 1 I don\'t. Swipe for how they held up on the track.'],
+    [7, 7, 0, 'v', 'marathon-wk6.mov', 'Taper week, day 3: legs feel weird, brain feels weirder.'],
+    ['sun+', 15, 0, 'p', ['medal'], 'Run club Sunday: Danny finished his first marathon 🏅 So proud of this guy.'],
+    [11, 18, 30, 'v', 'b-roll-01.mov', 'Recovery jog. No watch, no pace, just the city 🌇'],
+    [13, 8, 0, 'p', ['breakfast'], 'The pre-run breakfast I\'ve eaten for 4 years: oats, fruit, coffee. Ask me anything about fuelling 👇'],
+  ] },
+  tides: { by: ['sofia', 'marcus'], v: ['instagram', 'tiktok', 'youtubeshorts', 'facebook'], p: ['instagram', 'facebook'], posts: [
+    [-7, 18, 30, 'v', 'rehearsal.mp4', 'Last rehearsal before the tour. The setlist is locked (mostly).'],
+    [-6, 12, 0, 'p', ['van', 'friends'], 'The van is packed. 9 cities, 12 days. See you on the road 🚐'],
+    ['fri-', 21, 30, 's', ['concert', 'guitarist'], 'Live from tonight\'s show 🎸'],
+    [-2, 20, 0, 'v', 'van-life.mp4', 'Tour diary, day 4: six hours of highway and one gas-station taco.'],
+    [-1, 12, 0, 'p', ['vinyl'], 'Test pressings for "Undertow" just arrived. They sound so good.'],
+    [1, 19, 0, 'v', 'studio-day.mp4', 'How we tracked the vocals on "Undertow": one mic, one take, lights off.'],
+    [2, 12, 0, 'p', ['guitarist', 'stage-gear', 'drums'], 'Our gear for this run. Swipe for the drum kit that survived 9 cities 🥁'],
+    [4, 21, 0, 's', ['stage-gear', 'concert'], 'Doors at 8 tonight 🎟️'],
+    [6, 12, 0, 'p', ['vinyl'], '"Undertow" on 12-inch vinyl. 300 signed copies, at the merch table and online.', ['instagram', 'facebook', 'tiktok']],
+    [7, 19, 30, 'v', 'tour-night-3.mov', 'Tour diary, night 7: Detroit sang every word back 🔊'],
+    [10, 18, 0, 'v', 'rehearsal.mp4', 'Soundcheck ritual: same 3 songs, same order, every night.'],
+    [12, 20, 0, 'p', ['van'], 'Last stretch. 3 shows left on the tour.'],
+  ] },
+  grace: { by: ['marcus', 'jordan'], v: ['instagram', 'facebook', 'youtubeshorts'], p: ['instagram', 'facebook'], posts: [
+    ['sun-', 8, 30, 'p', ['church-cross'], 'Join us today at 9 or 11am. Kids check-in opens 20 minutes early.'],
+    ['sun-', 13, 0, 'v', 'choir.mp4', 'Choir Sunday: "It Is Well" from this morning 🙏'],
+    ['wed-', 12, 0, 'p', ['bible-study'], 'Small groups meet tonight at 7. New here? There is a seat for you.'],
+    [-4, 10, 0, 's', ['food-drive'], 'Food drive: day 1 🥫'],
+    [7, 10, 0, 'p', ['food-drive'], 'This month\'s food drive: 2,000 cans for Eastside Pantry. Drop-off is in the lobby all week.'],
+    ['sun', 8, 30, 'p', ['church-cross'], 'Join us today at 9 or 11am. Coffee is on us ☕'],
+    ['sun', 18, 30, 'v', 'worship-night.mov', 'Sunday worship highlights. The full service is on our YouTube.'],
+    ['wed', 12, 0, 'p', ['bible-study', 'choir'], 'Midweek: small groups at 7, choir rehearsal at 8. Everyone is welcome.'],
+    [5, 9, 0, 's', ['food-drive', 'bible-study'], 'This week at Grace City'],
+    [9, 18, 0, 'v', 'candlelight.mp4', 'Candlelight prayer night is coming. An hour of quiet, music and prayer. Bring a friend.'],
+    ['sun+', 8, 30, 'p', ['choir'], 'Choir Sunday again. Come hear what they have been working on 🎶'],
+    [12, 19, 0, 'v', 'choir.mp4', 'Behind the scenes at choir rehearsal 🎶'],
+  ] },
+  riverside: { by: ['sam', 'maya'], v: ['instagram', 'tiktok', 'facebook'], p: ['instagram', 'facebook', 'linkedin'], posts: [
+    [-7, 11, 0, 'v', 'mural.mp4', 'Day 3 on the Main St mural. Halfway there 🎨'],
+    [-6, 17, 0, 'p', ['painting-class', 'pottery'], 'Fall classes are open: watercolor on Tuesdays, wheel throwing on Saturdays. Scholarships available.'],
+    ['thu-', 21, 0, 'v', 'airport-bit.mp4', 'Open mic night: thank you to 14 performers and a full room 🎤'],
+    [-2, 12, 0, 'p', ['book-club'], 'Book club pick for this month: "The Overstory". We meet in the gallery, coffee provided.'],
+    [-1, 19, 0, 's', ['gallery'], 'Gallery is open late tonight 🖼️'],
+    [4, 11, 0, 'v', 'pottery.mp4', 'Wheel throwing, start to finish in 30 seconds 🏺'],
+    [2, 12, 0, 'p', ['gallery', 'mural'], 'Gallery night: 12 local artists, one room, free entry. Doors at 6.'],
+    [3, 10, 0, 'v', 'gallery-night.mp4', 'Gallery night recap: thank you for packing the room 🖼️'],
+    ['thu', 17, 0, 'p', ['mic'], 'Open mic tonight at 7. Sign-ups at the door, 5 minutes each.', ['instagram', 'facebook']],
+    [8, 12, 0, 'p', ['painting-class'], 'Adult watercolor, week 1. Most of the class hadn\'t painted since grade school. Look at these 🍊'],
+    [10, 11, 0, 'v', 'mural.mp4', 'The Main St mural is finished. 21 days, 9 volunteers, 140 cans of paint.', ['instagram', 'tiktok', 'facebook', 'linkedin']],
+    [12, 17, 0, 's', ['pottery', 'painting-class'], 'In the studio this week'],
+    [13, 12, 0, 'p', ['book-club'], 'We need 6 volunteers for the winter workshop series. Sign up at the link in bio.'],
+  ] },
+};
+const PHOTO_FORMAT = { instagram: 'Photo', facebook: 'Photo', tiktok: 'Photo post', linkedin: 'Image' };
+const MULTI_FORMAT = { instagram: 'Carousel', facebook: 'Multi-photo', tiktok: 'Photo post', linkedin: 'Multi-image' };
+const DOW = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+export function planDay(day, now) {
+  if (typeof day === 'number') return day;
+  const [, name, mod] = day.match(/^(\w{3})([+-]?)$/);
+  const diff = DOW[name] - now.getDay();
+  if (mod === '-') return ((diff - 7) % 7) || -7; // last one: -7…-1
+  return (((diff + 7) % 7) || 7) + (mod === '+' ? 7 : 0); // next one: 1…7 (+7)
+}
+function planPosts(now, at, post, img) {
+  const out = [];
+  for (const [brand, { by, v, p, posts }] of Object.entries(PLAN)) {
+    posts.forEach(([day, h, m, kind, media, caption = '', platforms], i) => {
+      const d = planDay(day, now);
+      const id = `g-${brand}-${String(i + 1).padStart(2, '0')}`;
+      const status = d < 0 ? 'published' : 'queued';
+      const on = platforms || (kind === 'v' ? v : kind === 's' ? p.filter((x) => x === 'instagram' || x === 'facebook') : p);
+      const base = post(id, kind === 'v' ? media : null, caption, at(d, h, m), status, on, kind === 'v' ? FIX_OF[media] || 'none' : 'none', { by: by[i % by.length], brand });
+      if (kind === 'v') { out.push(base); return; }
+      const images = media.map(img).filter(Boolean);
+      const fmt = kind === 's' ? () => 'Story' : (pl) => (images.length > 1 ? MULTI_FORMAT : PHOTO_FORMAT)[pl];
+      out.push({ ...base, kind: kind === 's' ? 'story' : 'photos', images, destinations: on.map((pl) => ({ platform: pl, format: fmt(pl), status: status === 'published' ? (pl === 'tiktok' ? 'drafts' : 'posted') : 'queued' })) });
+    });
+  }
+  return out;
+}
+
 // Which posted clips get measured, and through which routes.
-const MEASURE = [
+const BASE_MEASURE = [
   ['d06', 'weekly-recap.mp4', [['instagram', false], ['instagram', true], ['linkedin', false], ['facebook', false]]],
   ['d11', 'camera-test.mp4', [['instagram', false], ['instagram', true], ['youtubeshorts', false]]],
   ['d12', 'friday-crew.mp4', [['instagram', false], ['facebook', false]]],
   ['d15', 'marathon-wk6.mov', [['instagram', false]]],
   ['d16', 'coffee-bts.mp4', [['instagram', false], ['instagram', true]]],
 ];
+const measureList = (posts) => [...BASE_MEASURE, ...posts.filter((p) => p.id.startsWith('g-') && p.status === 'published' && p.kind === 'reel').map((p) => [p.id, p.source, [['instagram', false]]])];
 
 // A sample benchmark: three clips through five routes. The routes are SIMULATED stand-ins
 // (Scheduler A/B/C are not real products), but every score is a real VMAF measurement.
@@ -233,7 +353,7 @@ export async function buildDemo(root, { log = console.log } = {}) {
   // Real measurements, cached by the clip's size so a rebuilt video is re-measured.
   const qfile = join(data, 'quality.json');
   const old = existsSync(qfile) ? JSON.parse(readFileSync(qfile, 'utf8')) : [];
-  const jobs = MEASURE.flatMap(([postId, file, routes]) => routes.map(([platform, viaApp]) => ({ postId, file, platform, viaApp, id: `${postId}-${platform}${viaApp ? '-app' : ''}` })));
+  const jobs = measureList(posts).flatMap(([postId, file, routes]) => routes.map(([platform, viaApp]) => ({ postId, file, platform, viaApp, id: `${postId}-${platform}${viaApp ? '-app' : ''}` })));
   const todo = jobs.filter((j) => !old.some((q) => q.id === j.id && q.bytes === statSync(join(media, j.file)).size));
   if (todo.length) log(`  Measuring ${todo.length} quality comparisons with VMAF (first run only)…`);
   const fresh = [];

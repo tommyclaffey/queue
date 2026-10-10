@@ -1188,7 +1188,7 @@ function renderPhoneGate() {
       : 'Queue\u2019s phone layout is on the way. For now, open it on a computer.'),
     demo ? el('div', { class: 'pg-shots', tabindex: '0', 'aria-label': 'Screenshots of Queue' }, ...shots.map(([f, cap]) => el('figure', {}, el('a', { href: `/shots/${f}.jpg`, target: '_blank', rel: 'noopener', 'aria-label': `${cap} (full size)` }, el('img', { src: `/shots/${f}.jpg`, alt: cap, loading: 'lazy', width: 1200, height: 781 })), el('figcaption', { class: 'small muted' }, cap)))) : null,
     el('div', { class: 'pg-actions' }, btn('Send this link to my computer', 'primary', send), btn('Copy link', 'secondary', copy), status, btn('Open it here anyway', 'ghost', anyway)),
-    demo ? el('p', { class: 'small muted pg-foot' }, 'Designed by ', el('a', { class: 'link', href: 'https://www.tommyclaffey.com', target: '_blank', rel: 'noopener' }, 'Tommy Claffey')) : null));
+    demo ? el('p', { class: 'small muted pg-foot' }, 'Designed and engineered by ', el('a', { class: 'link', href: 'https://www.tommyclaffey.com', target: '_blank', rel: 'noopener' }, 'Tommy Claffey')) : null));
 }
 
 // The demo's welcome card: what Queue is, who you are in it, and four things to try. Once per browser.
@@ -1211,7 +1211,7 @@ function showWelcome() {
       el('p', { class: 'small muted' }, me ? `You\u2019re ${me.name}, who runs social for five accounts at ${S.extras.account.name}. Everyone here is made up, and nothing posts anywhere.` : 'Everyone here is made up, and nothing posts anywhere.'),
       el('div', { class: 'label', style: 'margin-top:6px;color:var(--text-secondary)' }, 'Try these'),
       el('ol', { class: 'tour-list' }, ...tries.map(([t, sub, fn], i) => el('li', {}, el('button', { type: 'button', class: 'tour-item', on: { click: fn } }, el('span', { class: 'tour-n', 'aria-hidden': 'true' }, String(i + 1)), el('span', { class: 'tour-txt' }, el('b', {}, t), el('span', { class: 'small muted' }, sub)), el('span', { class: 'ico faint', html: svgIcon('chevR') }))))),
-      el('div', { class: 'foot' }, el('span', { class: 'small muted', style: 'flex:1' }, 'Designed by ', el('a', { class: 'link', href: 'https://www.tommyclaffey.com', target: '_blank', rel: 'noopener' }, 'Tommy Claffey')), btn('Start exploring', 'primary', close)));
+      el('div', { class: 'foot' }, el('span', { class: 'small muted', style: 'flex:1' }, 'Designed and engineered by ', el('a', { class: 'link', href: 'https://www.tommyclaffey.com', target: '_blank', rel: 'noopener' }, 'Tommy Claffey')), btn('Start exploring', 'primary', close)));
   });
 }
 
