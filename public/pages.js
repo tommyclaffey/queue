@@ -52,7 +52,7 @@ VIEWS.post = async (c, id) => {
   // ---- left: the post itself
   const media = p.images?.length ? carousel(p.images, 'detail-media') : (() => { const v = el('video', { class: 'detail-media', src: p.media ? `/media/${encodeURIComponent(p.media)}` : '', muted: true, autoplay: true, loop: true, playsInline: true }); v.muted = true; return v; })();
   const by = member(p.by);
-  const left = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'detail-frame' }, media), el('div', {}, pill(s)),
+  const left = el('div', { class: 'stack', style: 'gap:10px' }, el('div', { class: 'detail-device' }, deviceChrome(el('div', { class: 'phone clean' }, media, el('div', { class: 'shade-t' })))), el('div', {}, pill(s)),
     by ? el('div', { class: 'row by-line', style: 'gap:8px' }, avatarEl(by, 'av-sm'), el('div', { class: 'small' }, el('span', { class: 'muted' }, 'Scheduled by '), el('b', { style: 'font-weight:600' }, by.name))) : null,
     brandOf(p) ? el('div', { class: 'row by-line', style: 'gap:8px' }, avatarEl(brandOf(p), 'av-sm'), el('div', { class: 'small' }, el('span', { class: 'muted' }, 'For '), el('b', { style: 'font-weight:600' }, brandOf(p).name), el('span', { class: 'muted' }, ` · @${brandOf(p).handle}`))) : null, p.permalink ? el('a', { class: 'small faint link', href: p.permalink, target: '_blank', rel: 'noopener' }, p.permalink.replace(/^https?:\/\/(www\.)?/, '').slice(0, 34) + '…') : el('div', { class: 'small faint' }, postMeta(p)));
 
@@ -632,19 +632,59 @@ function photosComposer(c) {
     n > 10 && on.includes('instagram') ? el('div', { class: 'issue' }, `Instagram takes 10 photos per carousel. Only the first 10 go there; the others still go everywhere else.`) : el('div', { class: 'boxed small' }, 'Every photo is resized once, from your original, for each platform.'));
   c.append(el('div', { class: 'composer' }, col1, el('div', { class: 'stack' }, photosCard, dests, capCard), el('div', { class: 'stack' }, sized, dateTimeCard(`${tz} · Queue posts every platform at the same time`))));
 }
+// ---------------------------------------------------------------- iPhone frame for every preview
+// Every platform preview sits in a real iPhone 16 Pro: the screen keeps 402 : 874 (scaled to 206 × 448),
+// with the 54 pt status bar, the Dynamic Island and the 34 pt home indicator. Bezel and edge are shadows
+// in styles.css, so nothing inside has to know about them.
+const STATUS_ICONS = '<svg viewBox="0 0 72 13" aria-hidden="true"><g fill="currentColor"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></g><g transform="translate(24,0)" fill="currentColor" stroke="currentColor" stroke-width="0.3" stroke-linejoin="round"><path d="M0.616 3.516A11.15 11.15 0 0 1 16.384 3.516L14.970 4.930A9.15 9.15 0 0 0 2.030 4.930Z"/><path d="M3.444 6.344A7.15 7.15 0 0 1 13.556 6.344L12.142 7.758A5.15 5.15 0 0 0 4.858 7.758Z"/><path d="M8.5 11.4L6.273 9.173A3.15 3.15 0 0 1 10.727 9.173Z"/></g><g transform="translate(45,0)"><rect x="0.5" y="0.5" width="23" height="12" rx="3.5" fill="none" stroke="currentColor" stroke-opacity="0.4"/><rect x="2" y="2" width="17" height="9" rx="2" fill="currentColor"/><path d="M25 4.5v4c.8-.3 1.3-1.1 1.3-2s-.5-1.7-1.3-2Z" fill="currentColor" fill-opacity="0.45"/></g></svg>';
+function deviceChrome(ph, light = false) {
+  ph.classList.add('device');
+  ph.append(el('div', { class: 'ph-status' + (light ? ' ph-light' : ''), 'aria-hidden': 'true' }, el('span', { class: 'ph-time' }, '9:41'), el('span', { class: 'ph-island' }), el('span', { class: 'ph-icons', html: STATUS_ICONS })),
+    el('div', { class: 'ph-home' + (light ? ' ph-light' : ''), 'aria-hidden': 'true' }));
+  return ph;
+}
+// Instagram's own line icons, drawn at 24 × 24 like the app.
+const IG_PATH = {
+  back: 'M15 4.5 7.5 12l7.5 7.5',
+  heart: 'M12 20.5s-7.6-4.4-9.4-9.1C1.4 8.2 3.4 4.8 6.8 4.8c2.1 0 3.7 1.1 5.2 3 1.5-1.9 3.1-3 5.2-3 3.4 0 5.4 3.4 4.2 6.6C19.6 16.1 12 20.5 12 20.5z',
+  comment: 'M20.7 16.3A9.2 9.2 0 1 0 17.2 19.8L21.6 21.2Z',
+  share: 'M21.5 2.5 10.2 13.8M21.5 2.5l-6.8 19-4.5-7.7-7.7-4.5z',
+  save: 'M19 21l-7-5.2L5 21V3.5h14z',
+  home: 'M3.5 10.2 12 3.3l8.5 6.9V21h-5.8v-6.3H9.3V21H3.5z',
+  search: 'M10.8 18.2a7.4 7.4 0 1 0 0-14.8 7.4 7.4 0 0 0 0 14.8zM16.2 16.2 21 21',
+  plus: 'M5.5 3h13A2.5 2.5 0 0 1 21 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 18.5v-13A2.5 2.5 0 0 1 5.5 3zM12 7.5v9M7.5 12h9',
+  reels: 'M5.5 3h13A2.5 2.5 0 0 1 21 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 18.5v-13A2.5 2.5 0 0 1 5.5 3zM3 8h18M9 3l3 5M15 3l3 5M10 11.5v6l5-3z',
+};
+const igIcon = (name, fill = 'none') => el('span', { class: 'ig-i', html: `<svg viewBox="0 0 24 24" fill="${fill}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${IG_PATH[name]}"/></svg>` });
+const igDots = () => el('span', { class: 'ig-i', html: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>' });
+// Instagram feed post (photo or carousel), the way it looks opened from a profile: light mode, 4:5.
+function igFeedPost(images, me, av) {
+  const car = carousel(images, 'fill', photoSrc);
+  const dots = car.querySelector('.dots'); // Instagram puts the dots under the photo, between the buttons
+  if (dots) dots.remove();
+  const tabAv = av.cloneNode();
+  return el('div', { class: 'ig' },
+    el('div', { class: 'ig-nav' }, igIcon('back'), el('div', { class: 'ig-title' }, el('small', {}, me.toUpperCase()), el('b', {}, 'Posts')), el('span', { class: 'ig-i' })),
+    el('div', { class: 'ig-head' }, el('span', { class: 'ig-ring' }, av), el('b', {}, me), igDots()),
+    el('div', { class: 'ig-media' }, car),
+    el('div', { class: 'ig-actions' }, el('div', { class: 'ig-l' }, igIcon('heart'), igIcon('comment'), igIcon('share')), dots || el('span'), igIcon('save')),
+    el('div', { class: 'ig-text' }, el('b', {}, '1,204 likes'), el('div', {}, el('b', {}, me), ' ', previewCaption('instagram', C.caption)), el('div', { class: 'ig-muted' }, 'View all 48 comments')),
+    el('div', { class: 'ig-tabs' }, igIcon('home', 'currentColor'), igIcon('search'), igIcon('plus'), igIcon('reels'), el('span', { class: 'ig-tab-av' }, tabAv)));
+}
 function photoPhone(platform, images) {
   const ph = el('div', { class: 'phone' + (platform === 'linkedin' ? ' light' : '') });
-  if (!images.length) { ph.append(el('div', { class: 'ph-empty' }, 'Add photos to preview')); return ph; }
-  if (!previewUI) { ph.className = 'phone clean'; ph.append(el('div', { style: 'position:absolute;inset:0' }, carousel(images, 'fill', photoSrc))); return ph; }
+  if (!images.length) { ph.append(el('div', { class: 'ph-empty' }, 'Add photos to preview')); return deviceChrome(ph); }
+  if (!previewUI) { ph.className = 'phone clean'; ph.append(el('div', { style: 'position:absolute;inset:0' }, carousel(images, 'fill', photoSrc))); return deviceChrome(ph); }
   const me = previewName();
   const av = el('img', { class: 'av', src: previewAvatar() || photoSrc(images[0]), alt: '' });
-  if (platform === 'instagram' || platform === 'facebook' || platform === 'linkedin') {
-    const ratio = platform === 'instagram' ? '4 / 5' : platform === 'facebook' ? '4 / 5' : '2 / 3';
+  if (platform === 'instagram') { ph.classList.add('ig-light'); ph.append(igFeedPost(images, me, av)); return deviceChrome(ph, true); }
+  if (platform === 'facebook' || platform === 'linkedin') {
+    const ratio = platform === 'facebook' ? '4 / 5' : '2 / 3';
     ph.append(el('div', { class: 'ph-feed' }, el('div', { class: 'urow', style: `padding:10px 12px;color:${platform === 'linkedin' ? '#191919' : '#fff'}` }, av, me), el('div', { style: `aspect-ratio:${ratio};position:relative;overflow:hidden` }, carousel(images, 'fill', photoSrc)), el('div', { class: 'small', style: `padding:10px 12px;color:${platform === 'linkedin' ? '#191919' : '#fff'};font-size:12px` }, previewCaption(platform, C.caption))));
   } else {
     ph.append(el('div', { style: 'position:absolute;inset:0' }, el('img', { class: 'blurfill', src: photoSrc(images[0]), alt: '' }), carousel(images, 'contain', photoSrc)), el('div', { class: 'ui' }, el('div', { class: 'capblock', style: 'bottom:56px' }, el('b', {}, `@${me}`), el('div', {}, previewCaption('tiktok', C.caption)))));
   }
-  return ph;
+  return deviceChrome(ph, platform === 'linkedin');
 }
 
 // ---------------------------------------------------------------- story (demo)
@@ -670,15 +710,16 @@ function storyComposer(c) {
 }
 function storyPhone(frames) {
   const ph = el('div', { class: 'phone' });
-  if (!frames.length) { ph.append(el('div', { class: 'ph-empty' }, 'Add frames to preview')); return ph; }
+  if (!frames.length) { ph.append(el('div', { class: 'ph-empty' }, 'Add frames to preview')); return deviceChrome(ph); }
   let i = 0;
   const img = el('img', { class: 'story-img', src: photoSrc(frames[0]), alt: '' });
   const bars = el('div', { class: 'story-bars' }, ...frames.map((_, k) => el('i', { class: k === 0 ? 'on' : '' })));
   const me = previewName();
-  if (!previewUI) ph.append(img); else ph.append(img, el('div', { class: 'shade-t' }), bars, el('div', { class: 'story-head' }, el('img', { class: 'av', src: previewAvatar() || photoSrc(frames[0]), alt: '' }), el('b', {}, me), el('span', { class: 'faint-w' }, 'Scheduled')));
+  if (!previewUI) ph.append(img); else ph.append(img, el('div', { class: 'shade-t' }), bars, el('div', { class: 'story-head' }, el('img', { class: 'av', src: previewAvatar() || photoSrc(frames[0]), alt: '' }), el('b', {}, me), el('span', { class: 'faint-w' }, 'Scheduled'), el('span', { class: 'story-x' }, igDots(), el('span', { class: 'ig-i', html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5l14 14M19 5 5 19"/></svg>' }))),
+    el('div', { class: 'story-reply' }, el('span', { class: 'story-input' }, 'Send message'), igIcon('heart'), igIcon('share')));
   if (previewSafe) ph.append(safeOverlay('story'));
   ph.addEventListener('click', () => { i = (i + 1) % frames.length; img.src = photoSrc(frames[i]); [...bars.children].forEach((b, k) => b.classList.toggle('on', k <= i)); });
-  return ph;
+  return deviceChrome(ph);
 }
 async function scheduleDemo(kind, images, platforms) {
   const now = takePostNow(); // "Post now" skips the date: it goes out as soon as it's ready

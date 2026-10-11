@@ -44,6 +44,7 @@ const P = {
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
   chevL: '<path d="m15 18-6-6 6-6"/>', chevR: '<path d="m9 18 6-6-6-6"/>', chevD: '<path d="m6 9 6 6 6-6"/>',
   external: '<path d="M7 17 17 7M8 7h9v9"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
 };
 const svgIcon = (name) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${P[name]}</svg>`;
 // Official full-colour platform logos (public/brand, see SOURCES.md), same files as the marketing site.
@@ -299,9 +300,44 @@ $('#themeBtn').addEventListener('click', () => { setTheme(effectiveTheme() === '
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawThemeBtn);
 drawThemeBtn();
 
+// ---------------------------------------------------------------- phone chrome (≤760px; hidden on desktop)
+function accountMenu(anchor) {
+  if (!(isDemo() && brands().length)) { if (!(S.status && !S.status.dryRun && S.status.account)) location.hash = '#/connect'; return; }
+  menu(anchor, [['All accounts', () => setBrand('all')], ...brands().map((b) => [el('span', { class: 'row', style: 'gap:8px' }, avatarEl(b, 'av-sm'), el('span', {}, b.name, el('span', { class: 'muted' }, ` · ${b.type}`))), () => setBrand(b.id)])]);
+}
+function renderPhoneChrome(route, nNeed) {
+  const bar = $('#mbar'), tabs = $('#tabbar'); if (!bar || !tabs) return;
+  const b = curBrand(); const who = b || (S.extras?.account ? { name: S.extras.account.name, avatar: S.extras.account.avatar } : { name: 'Queue' });
+  const av = el('button', { type: 'button', class: 'm-acct', 'data-tour': 'accounts', 'aria-label': 'Switch account', on: { click: (e) => { e.stopPropagation(); accountMenu(av); } } }, avatarEl(who, 'av-md'), el('span', { class: 'm-acct-name' }, who.name), el('span', { class: 'ico faint', html: svgIcon('chevD') }));
+  const theme = el('button', { type: 'button', class: 'theme-btn', 'aria-label': 'Switch theme', html: svgIcon(effectiveTheme() === 'dark' ? 'sun' : 'moon'), on: { click: () => { setTheme(effectiveTheme() === 'dark' ? 'light' : 'dark'); renderPhoneChrome(currentRoute(), S.posts.filter(needsYou).length); if (currentRoute() === 'settings') render(); } } });
+  bar.replaceChildren(av, el('span', { class: 'spacer' }), isDemo() ? el('button', { type: 'button', class: 'demo-tag', 'data-tour': 'demo', 'aria-label': 'Demo account: show the welcome card and tour', on: { click: showWelcome } }, 'Demo') : null, theme);
+  const r = ({ post: 'queue', benchmark: 'quality', new: 'new' }[route] || route);
+  const tab = (id, label, ic, extra) => el('a', { href: `#/${id}`, class: 'tab' + (r === id ? ' active' : ''), 'aria-current': r === id ? 'page' : null }, el('span', { class: 'ico', html: svgIcon(ic) }), el('span', { class: 'tab-label' }, label), extra || null);
+  const moreOn = ['library', 'quality', 'accounts', 'settings'].includes(r);
+  tabs.replaceChildren(
+    tab('dashboard', 'Home', 'dashboard'),
+    tab('calendar', 'Calendar', 'calendar'),
+    el('a', { href: '#/new', class: 'tab tab-new' + (r === 'new' ? ' active' : ''), 'aria-label': 'New post' }, el('span', { class: 'tab-plus', html: svgIcon('plus') })),
+    tab('queue', 'Queue', 'queue', nNeed ? el('span', { class: 'count' }, String(nNeed)) : null),
+    el('button', { type: 'button', class: 'tab' + (moreOn ? ' active' : ''), on: { click: moreSheet } }, el('span', { class: 'ico', html: svgIcon('menu') }), el('span', { class: 'tab-label' }, 'More')));
+}
+function moreSheet() {
+  modal((m, close) => {
+    m.classList.add('sheet');
+    const go = (h) => () => { close(); location.hash = h; };
+    const row = (ic, label, sub, fn) => el('button', { type: 'button', class: 'sheet-row', on: { click: fn } }, el('span', { class: 'ico', html: svgIcon(ic) }), el('span', { class: 'sheet-txt' }, el('b', {}, label), sub ? el('span', { class: 'small muted' }, sub) : null), el('span', { class: 'ico faint', html: svgIcon('chevR') }));
+    const me = meMember();
+    m.append(el('h2', { class: 'h2' }, 'More'),
+      el('div', { class: 'sheet-list' }, row('library', 'Library', 'Every video and photo', go('#/library')), row('quality', 'Quality', 'Quality Lab and benchmark', go('#/quality')), row('accounts', 'Accounts', 'Platforms and connections', go('#/accounts')), row('settings', 'Settings', 'Posting times, team, theme', go('#/settings'))),
+      isDemo() ? el('div', { class: 'sheet-list' }, row('play', 'Take the tour', '11 steps, about a minute', () => { close(); startTour(); }), row('dashboard', 'Welcome card', 'What this demo is', () => { close(); showWelcome(); })) : null,
+      me ? el('div', { class: 'row', style: 'gap:10px;padding:4px 2px' }, avatarEl(me, 'av-md'), el('div', {}, el('b', { style: 'font-weight:500' }, me.name), el('div', { class: 'small muted' }, me.role))) : null,
+      el('div', { class: 'foot' }, btn('Close', 'secondary', close)));
+  });
+}
 function renderChrome() {
   const route = currentRoute();
   const nNeed = S.posts.filter(needsYou).length;
+  renderPhoneChrome(route, nNeed);
   $('#nav').replaceChildren(...NAV.map(([id, label, ic]) => el('a', { href: `#/${id}`, class: ({ post: 'queue', benchmark: 'quality' }[route] || route) === id ? 'active' : '' }, icon(ic), label, id === 'queue' && nNeed ? el('span', { class: 'count' }, String(nNeed)) : null)));
   const st = S.status;
   const live = st && !st.dryRun && st.account;
@@ -351,7 +387,8 @@ setInterval(() => {
   n.textContent = nextCheckText();
 }, 1000);
 function topbar(title, subtitle, actions = []) {
-  $('#topbar').replaceChildren(el('div', { class: 'title' }, el('h1', { class: 'h1' }, title), subtitle ? el('div', { class: 'muted' }, subtitle) : null), ...actions);
+  const acts = actions.filter(Boolean);
+  $('#topbar').replaceChildren(...[el('div', { class: 'title' }, el('h1', { class: 'h1' }, title), subtitle ? el('div', { class: 'muted' }, subtitle) : null), acts.length ? el('div', { class: 'tb-actions' }, ...acts) : null].filter(Boolean));
 }
 
 // ---------------------------------------------------------------- router
@@ -643,7 +680,7 @@ function missedDecision(p, initial = 'now') {
 }
 
 // ================================================================ CALENDAR
-let calView = 'month';
+let calView = matchMedia('(max-width: 760px)').matches ? 'list' : 'month'; // phones open on the List view
 let calCursor = new Date(); calCursor.setHours(0, 0, 0, 0);
 const startOfWeek = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
 const shortTime = (d) => fmtTime(d).replace(':00', '').replace(' ', '').toLowerCase().replace(/m$/, '');
@@ -1098,7 +1135,7 @@ function uiToggle(redraw) {
 }
 function phone(platform, video, caption) {
   const ph = el('div', { class: 'phone' + (platform === 'linkedin' ? ' light' : '') });
-  if (!previewUI) { ph.className = 'phone clean'; ph.append(video); if (previewSafe) ph.append(safeOverlay(platform) || ''); return ph; }
+  if (!previewUI) { ph.className = 'phone clean'; ph.append(video); if (previewSafe) ph.append(safeOverlay(platform) || ''); return deviceChrome(ph); }
   const ui = el('div', { class: 'ui' });
   const I = (n, size = 24) => el('span', { style: `display:block;width:${size}px;height:${size}px`, html: svgIcon(n) });
   const at = (node, style) => { node.classList.add('abs'); node.setAttribute('style', (node.getAttribute('style') || '') + ';' + style); return node; };
@@ -1134,18 +1171,18 @@ function phone(platform, video, caption) {
       at(el('div', { style: 'height:34px;border-radius:999px;background:rgba(255,255,255,.14);display:flex;align-items:center;padding-left:14px;font-size:12.5px;color:#E4E6EB' }, 'Add a comment…'), 'left:12px;right:12px;bottom:14px'));
   } else {
     const top = el('div', { style: 'height:46px;background:#fff;display:flex;align-items:center;gap:8px;padding:0 10px' }, av(26), el('div', { style: 'flex:1;background:#EEF3F8;border-radius:4px;padding:6px 8px;font-size:12px;color:#666;display:flex;gap:6px;align-items:center' }, I('search', 14), 'Search'), el('span', { style: 'color:#666' }, I('comment', 20)));
-    const vid = el('div', { style: 'position:relative;height:250px;background:#111' }, video);
+    const vid = el('div', { style: 'position:relative;height:210px;background:#111' }, video);
     const card = el('div', { style: 'background:#fff;margin-top:6px;padding-top:10px;display:flex;flex-direction:column;gap:8px' },
       el('div', { style: 'display:flex;gap:8px;padding:0 10px' }, av(34), el('div', { style: 'flex:1;font-size:11px;color:#666;line-height:1.3' }, el('div', { style: 'font-size:13px;font-weight:600;color:#191919' }, me, el('span', { style: 'font-weight:400;color:#666' }, ' · You')), 'Creator', el('div', {}, '1h · 🌐')), el('span', { style: 'color:#666' }, I('more', 18))),
       el('div', { style: 'padding:0 10px;font-size:12.5px;line-height:1.35;color:#191919' }, capText), vid,
-      el('div', { style: 'display:flex;justify-content:space-between;padding:0 10px;font-size:11px;color:#666' }, '👍❤️ 248', '32 comments · 9 reposts'),
+      el('div', { style: 'display:flex;justify-content:space-between;padding:0 10px;font-size:11px;color:#666' }, el('span', {}, '👍❤️ 248'), el('span', {}, '32 comments · 9 reposts')),
       el('div', { style: 'display:flex;justify-content:space-between;padding:8px 14px 10px;border-top:1px solid #E8E8E8;color:#666;font-size:9px;font-weight:500' }, ...[['thumbUp', 'Like'], ['comment', 'Comment'], ['repeat', 'Repost'], ['send', 'Send']].map(([ic, l]) => el('div', { style: 'display:flex;flex-direction:column;align-items:center;gap:2px' }, I(ic, 16), l))));
-    ph.append(el('div', { style: 'position:absolute;inset:0;overflow:hidden' }, top, card));
+    ph.append(el('div', { class: 'ph-scale', style: 'position:absolute;overflow:hidden;background:#F4F2EE' }, top, card));
     ui.append(pnav([ni('home', 'Home', '#191919'), ni('users', 'My Network', '#666'), ni('plusSquare', 'Post', '#666'), ni('bell', 'Alerts', '#666'), ni('briefcase', 'Jobs', '#666')], 50, '#fff', '#666'));
   }
   ph.append(ui);
   if (previewSafe && platform !== 'linkedin') ph.append(safeOverlay(platform));
-  return ph;
+  return deviceChrome(ph, platform === 'linkedin');
 }
 // Reopen a video that's already in the Library (from Calendar, Library, or the drop screen).
 async function openInComposer(name, date, time) {
@@ -1168,32 +1205,6 @@ document.addEventListener('drop', () => { dragging = false; });
 // ---------------------------------------------------------------- phone screen + welcome card
 // Queue is a desktop app (the phone layout comes later). On a phone it shows what Queue is, three
 // screenshots, and a way to send the link to a computer, instead of a squeezed sidebar.
-const isPhone = () => matchMedia('(max-width: 760px)').matches && !document.documentElement.classList.contains('phone-ok');
-function renderPhoneGate() {
-  const gate = $('#phoneGate'); if (!gate) return;
-  const demo = isDemo();
-  const link = location.origin + '/';
-  const shots = [['dashboard', 'Plan the week across every account'], ['composer', 'One video, tailored to each platform'], ['quality', 'Proof your quality survived']];
-  const status = el('div', { class: 'small muted', role: 'status' });
-  const send = async () => {
-    if (navigator.share) { try { await navigator.share({ title: 'Queue', text: 'Queue, a social media scheduler (open on a computer)', url: link }); return; } catch (e) { if (e.name === 'AbortError') return; } }
-    location.href = `mailto:?subject=${encodeURIComponent('Queue: open on my computer')}&body=${encodeURIComponent(link)}`;
-  };
-  const copy = async () => { try { await navigator.clipboard.writeText(link); status.textContent = 'Link copied.'; } catch { status.textContent = link; } };
-  const anyway = () => { try { sessionStorage.setItem('queue-phone-ok', '1'); } catch {} document.documentElement.classList.add('phone-ok'); gate.replaceChildren(); render(); };
-  gate.replaceChildren(el('div', { class: 'pg-inner' },
-    el('div', { class: 'pg-logo' }, el('span', { class: 'logo-mark' }, el('span', { html: '<svg viewBox="0 0 24 24" width="12" height="12"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></svg>' })), el('span', { class: 'logo-word' }, 'Queue'), demo ? el('span', { class: 'demo-tag' }, 'Demo') : null),
-    el('h1', { class: 'pg-title' }, 'Queue is made for a bigger screen'),
-    el('p', { class: 'pg-lede' }, demo
-      ? 'Queue is a social media scheduler that keeps your videos looking the way you made them. It runs on a computer, so open this link on a laptop or desktop to try the live demo.'
-      : 'Queue\u2019s phone layout is on the way. For now, open it on a computer.'),
-    demo ? el('div', { class: 'pg-shots', tabindex: '0', 'aria-label': 'Screenshots of Queue' }, ...shots.map(([f, cap]) => el('figure', {}, el('a', { href: `/shots/${f}.jpg`, target: '_blank', rel: 'noopener', 'aria-label': `${cap} (full size)` }, el('img', { src: `/shots/${f}.jpg`, alt: cap, loading: 'lazy', width: 1200, height: 781 })), el('figcaption', { class: 'small muted' }, cap)))) : null,
-    el('div', { class: 'pg-actions' }, btn('Send this link to my computer', 'primary', send), btn('Copy link', 'secondary', copy), status, btn('Open it here anyway', 'ghost', anyway)),
-    demo ? el('p', { class: 'small muted pg-foot' }, 'Designed and engineered by ', el('a', { class: 'link', href: 'https://www.tommyclaffey.com', target: '_blank', rel: 'noopener' }, 'Tommy Claffey')) : null));
-}
-
-// The demo's welcome card: what Queue is, who you are in it, and four things to try. Once per browser.
-const WELCOME_KEY = 'queue-welcome-v1';
 function showWelcome() {
   try { localStorage.setItem(WELCOME_KEY, '1'); } catch {}
   const firstPost = () => [...(S.allPosts || S.posts)].filter(upcoming).sort((a, b) => a.publishAt.localeCompare(b.publishAt))[0];
@@ -1217,14 +1228,11 @@ function showWelcome() {
   });
 }
 
-// Narrowing a desktop window to phone width: show the phone screen then too.
-matchMedia('(max-width: 760px)').addEventListener('change', () => { if (isPhone() && !$('#phoneGate')?.firstChild) renderPhoneGate(); });
 (async function boot() {
   try { await load(); } catch (e) { toast(e.message, true); }
-  if (isPhone()) renderPhoneGate();
   if (!location.hash) location.hash = '#/dashboard'; else render();
   let seen = true; try { seen = !!localStorage.getItem(WELCOME_KEY); } catch {}
-  if (isDemo() && !seen && !isPhone()) setTimeout(showWelcome, 400);
+  if (isDemo() && !seen) setTimeout(showWelcome, 400);
   setInterval(async () => {
     // Don't redraw under someone typing in a search box or mid-drag on the calendar.
     const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
