@@ -721,6 +721,7 @@ button.demo-tag:focus-visible { outline: 2px solid var(--info); outline-offset: 
 /* ---------------------------------------------------------------- phone layout (≤760px). Desktop is unchanged:
    the phone bar and tab bar are hidden, and the action wrapper is invisible to layout. */
 .tb-actions { display: contents; }
+.cal-nav { display: flex; align-items: center; gap: 10px; } /* ‹ month › stay together */
 .mbar, .tabbar { display: none; }
 @media (max-width: 760px) {
   body { overscroll-behavior: none; }
@@ -742,6 +743,8 @@ button.demo-tag:focus-visible { outline: 2px solid var(--info); outline-offset: 
   .tb-actions::-webkit-scrollbar { display: none; }
   .tb-actions > * { flex: none; }
   .tb-actions .search { flex: 1 1 auto; min-width: 0; }
+  .cal-nav { flex: 1 0 100%; order: 5; justify-content: space-between; } /* its own row: ‹ on the left, month centred, › on the right */
+  .cal-nav b { min-width: 0 !important; }
   .tb-actions .search .input { width: 100%; }
   .content { padding: 16px 16px calc(100px + env(safe-area-inset-bottom)); font-size: 14px; }
   .btn { min-height: 40px; }

@@ -70,6 +70,8 @@ const PLATFORMS = [
 
 // ---------------------------------------------------------------- helpers
 const $ = (s, r = document) => r.querySelector(s);
+// Shorten text for a one-line label: cut at a word boundary and add an ellipsis, never mid-word.
+const clip = (s, n) => { if (!s || s.length <= n) return s || ''; const cut = s.slice(0, n - 1); const sp = cut.lastIndexOf(' '); return (sp > n * 0.6 ? cut.slice(0, sp) : cut).replace(/[\s,;:–—-]+$/, '') + '…'; };
 function el(tag, props = {}, ...kids) {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(props || {})) {
@@ -442,7 +444,7 @@ VIEWS.dashboard = (c) => {
   if (!need.length) att.append(el('div', { class: 'muted small' }, 'Nothing needs you. Missed or failed posts will show up here with a one-click fix.'));
   for (const p of need) {
     const s = statusOf(p);
-    att.append(el('div', { class: 'attn' }, el('div', { class: 'row' }, el('b', { style: 'flex:1;font-weight:500' }, p.caption?.slice(0, 40) || '(no caption)'), pill(s)), el('div', { class: 'small muted' }, p.error || ''), el('div', { class: 'row' }, s === 'missed' ? btn('Post now', 'primary small', () => missedDecision(p)) : btn('Retry', 'secondary small', () => retry(p)), s === 'missed' ? btn('Reschedule', 'ghost small', () => missedDecision(p, 'later')) : btn('Details', 'ghost small', () => history(p)))));
+    att.append(el('div', { class: 'attn' }, el('div', { class: 'row' }, el('b', { style: 'flex:1;font-weight:500' }, clip(p.caption, 40) || '(no caption)'), pill(s)), el('div', { class: 'small muted' }, p.error || ''), el('div', { class: 'row' }, s === 'missed' ? btn('Post now', 'primary small', () => missedDecision(p)) : btn('Retry', 'secondary small', () => retry(p)), s === 'missed' ? btn('Reschedule', 'ghost small', () => missedDecision(p, 'later')) : btn('Details', 'ghost small', () => history(p)))));
   }
   const st = S.status;
   const health = el('div', { class: 'card stack', style: 'gap:6px' }, el('h2', { class: 'h3', style: 'margin-bottom:4px' }, 'Health'));
@@ -725,7 +727,7 @@ VIEWS.calendar = async (c) => {
     : calCursor.toLocaleDateString([], { month: 'long', year: 'numeric' });
   const seg = el('div', { class: 'seg' }, ...[['month', 'Month'], ['week', 'Week'], ['list', 'List']].map(([k, l]) => el('button', { class: calView === k ? 'on' : '', on: { click: () => { calView = k; render(); } } }, l)));
   const unit = calView === 'week' ? 'week' : 'month';
-  topbar('Calendar', null, [seg, btn(el('span', { class: 'ico', html: svgIcon('chevL') }), 'ghost', step(-1), { 'aria-label': `Previous ${unit}` }), el('b', { style: 'min-width:130px;text-align:center;font-weight:500' }, label), btn(el('span', { class: 'ico', html: svgIcon('chevR') }), 'ghost', step(1), { 'aria-label': `Next ${unit}` }), btn('Today', 'secondary', () => { calCursor = startOfDay(new Date()); render(); }), btn('New post', 'primary', () => (location.hash = '#/new'))]);
+  topbar('Calendar', null, [seg, el('div', { class: 'cal-nav' }, btn(el('span', { class: 'ico', html: svgIcon('chevL') }), 'ghost', step(-1), { 'aria-label': `Previous ${unit}` }), el('b', { style: 'min-width:130px;text-align:center;font-weight:500' }, label), btn(el('span', { class: 'ico', html: svgIcon('chevR') }), 'ghost', step(1), { 'aria-label': `Next ${unit}` })), btn('Today', 'secondary', () => { calCursor = startOfDay(new Date()); render(); }), btn('New post', 'primary', () => (location.hash = '#/new'))]);
 
   const main = el('div', { style: 'min-width:0', 'data-tour': 'calendar' });
   const today = new Date();

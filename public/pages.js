@@ -33,7 +33,7 @@ VIEWS.post = async (c, id) => {
   const plats = platformsOf(p);
   const comps = comparisonsFor(p.id);
   const main = comps.find((q) => q.platform === 'instagram' && q.route === 'queue') || comps.find((q) => q.route === 'queue');
-  const title = (postTitle(p)).split(/[.!?\n]/)[0].slice(0, 60);
+  const title = clip((postTitle(p)).split(/[.!?\n]/)[0], 60);
 
   const actions = [];
   if (p.source) actions.push(btn('Duplicate', 'ghost', () => openInComposer(p.source)));
@@ -1010,7 +1010,7 @@ function addBenchResult(b, preset = {}) {
       try {
         const r = await api('/api/instagram/recent');
         if (!r.media.length) { srcBody.replaceChildren(el('div', { class: 'inset small muted' }, r.reason === 'demo' ? 'The demo has no Instagram account to pull from. Use "Upload the file" to try it.' : r.reason === 'dryrun' ? 'Connect Instagram first (Meta Setup Guide), or upload the file.' : 'No videos on the account yet.')); return; }
-        const grid = el('div', { class: 'ig-pick' }, ...r.media.map((x) => el('button', { class: 'ig-item' + (mediaId === x.id ? ' on' : ''), type: 'button', on: { click: (e) => { mediaId = x.id; grid.querySelectorAll('.ig-item').forEach((n) => n.classList.remove('on')); e.currentTarget.classList.add('on'); } } }, x.thumbnail_url ? el('img', { src: x.thumbnail_url, alt: '', referrerpolicy: 'no-referrer' }) : el('div', { class: 'ig-ph' }), el('span', { class: 'small' }, (x.caption || '(no caption)').slice(0, 40)), el('span', { class: 'small faint' }, new Date(x.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })))));
+        const grid = el('div', { class: 'ig-pick' }, ...r.media.map((x) => el('button', { class: 'ig-item' + (mediaId === x.id ? ' on' : ''), type: 'button', on: { click: (e) => { mediaId = x.id; grid.querySelectorAll('.ig-item').forEach((n) => n.classList.remove('on')); e.currentTarget.classList.add('on'); } } }, x.thumbnail_url ? el('img', { src: x.thumbnail_url, alt: '', referrerpolicy: 'no-referrer' }) : el('div', { class: 'ig-ph' }), el('span', { class: 'small' }, clip(x.caption, 40) || '(no caption)'), el('span', { class: 'small faint' }, new Date(x.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })))));
         srcBody.replaceChildren(grid);
       } catch (e) { srcBody.replaceChildren(el('div', { class: 'small', style: 'color:var(--danger)' }, e.message)); }
     }

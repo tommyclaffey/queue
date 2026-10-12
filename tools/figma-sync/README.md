@@ -1,0 +1,26 @@
+# figma-sync — refresh the Queue Figma file from the app
+
+**Rule: the code is the source of truth. Figma follows it.** These scripts recapture every screen of the
+running app and rebuild it in the Queue Figma file (`cl7vaIltbmIwCmaFvgxVGf`) as editable layers, with colours
+bound to the Queue variables. Nothing here ships with the app.
+
+## How it works
+1. **Capture** (`capture.mjs`, via `capall.sh`): headless Chrome walks the app's DOM and records every box,
+   text run, icon and image with exact positions → `cap/<prefix>-<id>.json` + a PNG.
+   `capall.sh <screens.json> <prefix> <base-url> <W> <H> <light|dark> [mobile]`
+   - Desktop: 1440 × 1024 · Phone: 402 × 786 (the Figma phone frame adds the 54 pt status bar and 34 pt home strip)
+   - `screens-L.json` = desktop screens, `screens-M.json` = phone screens (id, Figma name, setup JS)
+2. **Compare** (`ndiff.py`): pixel-diffs the new capture against the last one → `njobs.json`, the screens that changed.
+3. **Images** (`prepimg.mjs` → `upimg.mjs`): uploads any new photos once; hashes live in `img/map.json`.
+4. **Pack + upload** (`pack.mjs` → `upsvg.mjs`): each capture is compacted and uploaded as an SVG text payload
+   (`QDATA:<id>:<base64>`) via the Figma MCP `upload_assets` URLs.
+5. **Build** (`builder.js`): runs inside Figma. Upload it first as its own payload (`pack`-style SVG text node on a
+   temporary page), then run it with the AsyncFunction constructor; delete the temporary page when the refresh is done. `swapgen.py` + `swapbody.js` generate the "replace in place" calls: same frame, same name,
+   same position, so prototype links into it keep working.
+6. **Wire** (`wire.js`): sidebar and tab-bar links plus ~40 button rules → prototype clicks and flows.
+7. **Lo-fi** (`lofi-regen.js`): clones the light hi-fi frame into the Wireframes page in greyscale tokens.
+
+## Run it
+- Serve two frozen copies of the app: desktop on :4402, phone layout on :4403 (`npm run demo` with `DEMO_PORT`).
+- `serve.mjs` is a small CORS file server, only needed for debugging.
+- The demo's posts are timed relative to now, so dashboards drift during the day. That's data, not design.
