@@ -156,6 +156,13 @@ test('phone-screen screenshots are served by name, and nothing else from that fo
   for (const bad of ['/shots/..%2Fapp.js', '/shots/nope.jpg', '/shots/composer.png']) assert.notEqual((await fetch(base + bad)).status, 200, bad);
 });
 
+test('app icons are served by name, and nothing else from that folder', async () => {
+  const r = await fetch(base + '/icons/favicon-32.png');
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /image\/png/);
+  for (const bad of ['/icons/..%2Fapp.js', '/icons/nope.png', '/icons/favicon-32.jpg']) assert.notEqual((await fetch(base + bad)).status, 200, bad);
+});
+
 test('demo plan: every account has two weeks of posts, weekday posts land on their weekday, formats fit their platforms', () => {
   assert.deepEqual(Object.keys(PLAN).sort(), DEMO_BRANDS.map((b) => b.id).sort());
   const team = new Set(DEMO_TEAM.members.filter((m) => !m.invited && m.role !== 'Viewer').map((m) => m.id));

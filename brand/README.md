@@ -15,9 +15,10 @@ A play button in a square with one sharp corner (bottom right): the tail of a Q.
 The app icon puts the mark on a full-bleed colour (ink mark on lime, or lime mark on ink), because iOS and macOS round the icon's outer corners.
 
 ## Which logo
-- **Ink** (`*-ink`): on white and light backgrounds.
-- **Paper** (`*-paper`): on black, dark backgrounds, and photos with a dark overlay.
-- **Lime** (`*-lime`): marketing, on black only. Lime always carries ink, never white, and never sits on white (1.3 : 1).
+- **Primary** (`queue-lockup-primary`): the default, everywhere. The lime icon tile next to black lettering, on white and light backgrounds.
+- **Primary · paper** (`queue-lockup-primary-paper`): the same lime tile with white lettering, on black, dark backgrounds and photos with a dark overlay.
+- **Icon** (`queue-icon`): the lime tile on its own, for avatars, favicons and tight spaces. The app icons (`app-icon/`) are the same tile, full-bleed, for the OS to round.
+- **Ink, Paper, Lime** (`*-ink`, `*-paper`, `*-lime`): one-colour versions for when colour isn't possible (embossing, single-colour print, watermarks). The Lime version (lime mark, white lettering) is for black only.
 
 ## Rules in one line each
 - Clear space: half the mark's height on every side.

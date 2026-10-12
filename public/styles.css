@@ -72,7 +72,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .theme-btn { width: 32px; height: 32px; flex: none; border-radius: 9px; border: 1px solid var(--border-subtle); background: var(--surface-1); color: var(--text-secondary); display: grid; place-items: center; cursor: pointer; padding: 0; }
 .theme-btn:hover { color: var(--text-primary); background: var(--surface-hover); }
 .theme-btn svg { width: 16px; height: 16px; }
-.logo-mark { width: 26px; height: 26px; border-radius: 8px; background: var(--brand); color: var(--text-on-brand); display: grid; place-items: center; }
+.logo-mark { width: 26px; height: 26px; border-radius: 5.8px; background: #C6F432; display: grid; place-items: center; flex: none; } /* primary logo: the lime icon tile (brand/README.md) */
 .logo-word { font-size: 18px; font-weight: 600; letter-spacing: -0.6px; }
 .account { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--surface-1); border: 1px solid var(--border-subtle); }
 .avatar { width: 30px; height: 30px; border-radius: 50%; flex: none; display: grid; place-items: center; font: 600 12px var(--font); color: var(--text-on-brand); background: var(--brand); }

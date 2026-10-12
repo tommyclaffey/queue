@@ -1,5 +1,5 @@
 const page = await figma.getNodeByIdAsync(PAGE); await figma.setCurrentPageAsync(page);
-const bn = await figma.getNodeByIdAsync('105:17819');
+const bn = await figma.getNodeByIdAsync(BUILDER);
 const raw = (bn.type === 'TEXT' ? bn : bn.findOne(n => n.type === 'TEXT')).characters;
 const bin = atob(raw.split(':')[2]); let src = ''; for (let i = 0; i < bin.length;) { const c = bin.charCodeAt(i); if (c < 128) { src += String.fromCharCode(c); i++; } else if (c < 224) { src += String.fromCharCode(((c & 31) << 6) | (bin.charCodeAt(i + 1) & 63)); i += 2; } else { src += String.fromCharCode(((c & 15) << 12) | ((bin.charCodeAt(i + 1) & 63) << 6) | (bin.charCodeAt(i + 2) & 63)); i += 3; } }
 const build = new (Object.getPrototypeOf(async function () {}).constructor)('figma', 'P', src);

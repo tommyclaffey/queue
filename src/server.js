@@ -318,6 +318,14 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
       res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
       return createReadStream(f).pipe(res);
     }
+    // App icons (public/icons): favicon and home-screen icon. Public, fixed names only.
+    const icon = req.method === 'GET' && /^\/icons\/(favicon-32|favicon-16|apple-touch-icon-180|icon-192|icon-512)\.png$/.exec(url.pathname);
+    if (icon) {
+      const f = fileIn(join(root, 'public', 'icons'), `${icon[1]}.png`);
+      if (!f) return send(res, 404, { error: 'not found' });
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+      return createReadStream(f).pipe(res);
+    }
     // Screenshots for the phone screen (public/shots). Fixed names only.
     const shot = req.method === 'GET' && /^\/shots\/([a-z]+)\.jpg$/.exec(url.pathname);
     if (shot) {
