@@ -2,7 +2,7 @@
    Token values mirror the Figma "Queue" file modes "Apple Light" and "Apple Dark". */
 
 :root {
-  --bg-app: #F5F5F7; --bg-sidebar: #FBFBFD;
+  --bg-app: #F5F5F7; --bg-sidebar: #FBFBFD; --logo-tile: #C6F432; --logo-play: #1D1D1F; --logo-word: #1D1D1F;
   --surface-1: #FFFFFF; --surface-2: #F5F5F7; --surface-3: #E8E8ED; --surface-hover: #EDEDF0;
   --border-subtle: #E5E5EA; --border-default: #D2D2D7; --border-strong: #AEAEB2;
   --text-primary: #1D1D1F; --text-secondary: #6E6E73; --text-tertiary: #86868B; --text-on-brand: #FFFFFF;
@@ -20,7 +20,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg-app: #000000; --bg-sidebar: #0E0E0F;
+    --bg-app: #000000; --bg-sidebar: #0E0E0F; --logo-tile: #C6F432; --logo-play: #1D1D1F; --logo-word: #FFFFFF;
     --surface-1: #1C1C1E; --surface-2: #2C2C2E; --surface-3: #3A3A3C; --surface-hover: #48484A;
     --border-subtle: #2C2C2E; --border-default: #38383A; --border-strong: #545458;
     --text-primary: #F5F5F7; --text-secondary: #A1A1A6; --text-tertiary: #6E6E73; --text-on-brand: #000000; --warning: #FF9F0A;
@@ -32,7 +32,7 @@
   }
 }
 :root[data-theme="dark"] {
-  --bg-app: #000000; --bg-sidebar: #0E0E0F;
+  --bg-app: #000000; --bg-sidebar: #0E0E0F; --logo-tile: #C6F432; --logo-play: #1D1D1F; --logo-word: #FFFFFF;
   --surface-1: #1C1C1E; --surface-2: #2C2C2E; --surface-3: #3A3A3C; --surface-hover: #48484A;
   --border-subtle: #2C2C2E; --border-default: #38383A; --border-strong: #545458;
   --text-primary: #F5F5F7; --text-secondary: #A1A1A6; --text-tertiary: #6E6E73; --text-on-brand: #000000; --warning: #FF9F0A;
@@ -72,7 +72,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .theme-btn { width: 32px; height: 32px; flex: none; border-radius: 9px; border: 1px solid var(--border-subtle); background: var(--surface-1); color: var(--text-secondary); display: grid; place-items: center; cursor: pointer; padding: 0; }
 .theme-btn:hover { color: var(--text-primary); background: var(--surface-hover); }
 .theme-btn svg { width: 16px; height: 16px; }
-.logo-mark { width: 26px; height: 26px; border-radius: 5.8px; background: #C6F432; display: grid; place-items: center; flex: none; } /* primary logo: the lime icon tile (brand/README.md) */
+.logo-mark { width: 26px; height: 26px; display: block; flex: none; } /* primary logo: the lime Q; lettering ink on light, white on dark (brand/README.md) */
+.logo-mark svg { display: block; width: 26px; height: 26px; }
+.logo-mark .tile { fill: var(--logo-tile); } .logo-mark .play { fill: var(--logo-play); stroke: var(--logo-play); }
+.logo .logo-word { color: var(--logo-word); }
 .logo-word { font-size: 18px; font-weight: 600; letter-spacing: -0.6px; }
 .account { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--surface-1); border: 1px solid var(--border-subtle); }
 .avatar { width: 30px; height: 30px; border-radius: 50%; flex: none; display: grid; place-items: center; font: 600 12px var(--font); color: var(--text-on-brand); background: var(--brand); }

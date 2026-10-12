@@ -239,7 +239,7 @@ VIEWS.welcome = (c) => {
   const connected = isDemo() || (st && !st.dryRun && st.account);
   c.append(el('div', { class: 'welcome' },
     el('div', { class: 'wel-left' },
-      el('a', { class: 'logo', href: '#/dashboard' }, el('span', { class: 'logo-mark', html: '<svg viewBox="0 0 26 26" width="16" height="16" aria-hidden="true"><path d="M8 0H18A8 8 0 0 1 26 8V26H8A8 8 0 0 1 0 18V8A8 8 0 0 1 8 0Z" fill="#1D1D1F"/><path d="M11 10V16L16 13Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.6" stroke-linejoin="round"/></svg>' }), el('span', { class: 'logo-word' }, 'Queue')),
+      el('a', { class: 'logo', href: '#/dashboard' }, el('span', { class: 'logo-mark', html: '<svg viewBox="0 0 26 26" width="26" height="26" aria-hidden="true"><path class="tile" d="M8 0H18A8 8 0 0 1 26 8V26H8A8 8 0 0 1 0 18V8A8 8 0 0 1 8 0Z"/><path class="play" d="M11 10V16L16 13Z" stroke-width="1.6" stroke-linejoin="round"/></svg>' }), el('span', { class: 'logo-word' }, 'Queue')),
       el('h1', { class: 'wel-h' }, 'Post Reels without losing quality.'),
       el('p', { class: 'muted' }, "Queue checks every video against Instagram's spec, fixes only what needs fixing, hands Instagram your original file — then posts it on time."),
       el('div', { class: 'stack', style: 'gap:14px' }, step(1, 'Connect Instagram', 'Creator or Business account. About 2 minutes.', true), step(2, 'Run the setup check', 'We test the connection, publishing permission and video tools.'), step(3, 'Schedule a test Reel', 'Low-stakes first post to prove it end to end.')),

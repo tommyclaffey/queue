@@ -15,9 +15,10 @@ const primary = (text) => `<svg width="570" height="117" viewBox="0 0 570 117" f
 const iconTile = () => `<svg width="104" height="104" viewBox="0 0 104 104" fill="none" xmlns="http://www.w3.org/2000/svg">${tile(0, 0, 104)}</svg>\n`;
 const wordmark = (text) => `<svg width="430" height="117" viewBox="0 0 430 117" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="${wordText}" fill="${text}"/></svg>\n`;
 const S = {
-  'queue-lockup-primary': primary(INK),
-  'queue-lockup-primary-paper': primary(PAPER),
-  'queue-icon': iconTile(),
+  // Primary (Tommy, Oct 12, confirmed with a preview): the lime Q (lime mark, ink play), ink lettering on light, white on dark
+  'queue-lockup-primary': lockup(LIME, INK, INK),
+  'queue-lockup-primary-paper': lockup(LIME, INK, PAPER),
+  'queue-icon': mark(LIME, INK),
   'queue-lockup-ink': lockup(INK, PAPER, INK),
   'queue-lockup-paper': lockup(PAPER, INK, PAPER),
   'queue-lockup-lime': lockup(LIME, INK, PAPER),
@@ -33,9 +34,10 @@ const jobs = [];
 for (const k of ['queue-lockup-primary', 'queue-lockup-primary-paper', 'queue-lockup-ink', 'queue-lockup-paper', 'queue-lockup-lime']) { jobs.push([img(k, 1140, 234), 1140, 234, `png/${k}@2x.png`]); jobs.push([img(k, 2280, 468), 2280, 468, `png/${k}@4x.png`]); }
 for (const k of ['queue-wordmark-ink', 'queue-wordmark-paper']) jobs.push([img(k, 1720, 468), 1720, 468, `png/${k}@4x.png`]);
 for (const k of ['queue-icon', 'queue-mark-ink', 'queue-mark-paper', 'queue-mark-lime']) { jobs.push([img(k, 512, 512), 512, 512, `png/${k}-512.png`]); jobs.push([img(k, 1024, 1024), 1024, 1024, `png/${k}-1024.png`]); }
-for (const [n, s] of [['icon-1024', 1024], ['icon-512', 512], ['icon-192', 192], ['apple-touch-icon-180', 180], ['favicon-32', 32], ['favicon-16', 16]]) jobs.push([img('queue-app-icon-lime', s, s), s, s, `app-icon/${n}.png`]);
+for (const [n, s] of [['icon-1024', 1024], ['icon-512', 512], ['icon-192', 192], ['apple-touch-icon-180', 180]]) jobs.push([img('queue-app-icon-ink', s, s), s, s, `app-icon/${n}.png`]);
+for (const [n, s] of [['favicon-32', 32], ['favicon-16', 16]]) jobs.push([img('queue-mark-lime', s, s), s, s, `app-icon/${n}.png`]);
 jobs.push([img('queue-app-icon-ink', 1024, 1024), 1024, 1024, 'app-icon/icon-ink-1024.png']);
-jobs.push([img('queue-app-icon-lime', 1080, 1080), 1080, 1080, 'social/avatar-1080.png']);
+jobs.push([img('queue-app-icon-ink', 1080, 1080), 1080, 1080, 'social/avatar-1080.png']);
 const FONT = `<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;600&family=Geist+Mono:wght@500&display=block" rel="stylesheet">`;
 const banner = (w, h, lockW, title, sub, center) => `<html><head>${FONT}</head><body style="margin:0;width:${w}px;height:${h}px;background:#000;display:flex;flex-direction:column;justify-content:center;${center ? 'align-items:center;text-align:center;' : ''}padding:0 ${Math.round(w * 0.07)}px;box-sizing:border-box;gap:${Math.round(h * 0.07)}px;font-family:Geist">
 <img src="${uri(S['queue-lockup-primary-paper'])}" style="width:${lockW}px;height:auto;display:block">

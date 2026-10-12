@@ -24,3 +24,8 @@ bound to the Queue variables. Nothing here ships with the app.
 - Serve two frozen copies of the app: desktop on :4402, phone layout on :4403 (`npm run demo` with `DEMO_PORT`).
 - `serve.mjs` is a small CORS file server, only needed for debugging.
 - The demo's posts are timed relative to now, so dashboards drift during the day. That's data, not design.
+
+## Mockups (06 · Mockups page)
+- `mockall.py` captures the 12 main screens at all 4 device sizes, light + dark → `mock/<Device>-<theme>-<NN>.png` (calls `mockshot.mjs`, headless Chrome at 3x for iPhone, 2x otherwise).
+- `upmock.mjs` uploads them via `upload_assets` URLs and saves hashes to `mock/hashes.json`. Frames in Figma are point-size with PNG export at 3x / 2x, so exports hit the native pixel sizes.
+- `upto.mjs` replaces the image in existing mockup frames: get `upload_assets` URLs with `nodeIds` (the frames), list `{file, node}` pairs in a jobs JSON, then `JOBS=jobs.json node upto.mjs 0 <urls...>`. Uploads 8 at a time with retries. `mockall.py` accepts `STAMP=<file>` to skip shots newer than it, and `PORT=` runs several captures in parallel.
