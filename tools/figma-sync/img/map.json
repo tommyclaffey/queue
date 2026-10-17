@@ -1,7 +1,7 @@
 {
  "http://localhost:4402/demo-assets/northline-logo.jpg": {
   "file": "img/1bd18a04baa2.jpg",
-  "hash": "78ff4da970755c15c90e08bc967148002dfa0867",
+  "hash": "acff1a55f337e564928c430c1855e71d7d43136c",
   "node": "82:11884"
  },
  "http://localhost:4402/demo-assets/team-maya.jpg": {
@@ -16,7 +16,7 @@
  },
  "http://localhost:4402/demo-assets/brand-gracecity.jpg": {
   "file": "img/7c05f766edc0.jpg",
-  "hash": "ddd00824be4e5f0c4b2ddb12fa0d7d2f949af2ee",
+  "hash": "92a029339628b2a8ffdc706b039e43091dc764a0",
   "node": "82:11878"
  },
  "video:http://localhost:4402/media/espresso-dialin.mov@0.80": {
@@ -26,7 +26,7 @@
  },
  "http://localhost:4402/demo-assets/brand-harbor.jpg": {
   "file": "img/247cac06be5e.jpg",
-  "hash": "546dc3fdcbe2cf398231b1f4ee49d0c59f57adfe",
+  "hash": "3e678113ff7d629a6bd87d6b9b0498b7efdf7278",
   "node": "82:11883"
  },
  "http://localhost:4402/demo-assets/coffee-bag.jpg": {
@@ -51,7 +51,7 @@
  },
  "http://localhost:4402/demo-assets/brand-lowtides.jpg": {
   "file": "img/30cf04513219.jpg",
-  "hash": "84f8775ecd80c6cddf3e54cdc6db81cd23e70f62",
+  "hash": "645014a4ae8d37b1d08d66e098a63d84fb3b364b",
   "node": "82:11881"
  },
  "video:http://localhost:4402/media/open-mic.mp4@0.80": {
@@ -61,7 +61,7 @@
  },
  "http://localhost:4402/demo-assets/brand-riverside.jpg": {
   "file": "img/ddbd2a246c0b.jpg",
-  "hash": "2f0e6b82b92ba3bb798b4699dc8253928989580a",
+  "hash": "02da2a7f914890723a4ca1035c8bbad9b869703d",
   "node": "82:11879"
  },
  "video:http://localhost:4402/media/pour-over-60.mov@0.80": {

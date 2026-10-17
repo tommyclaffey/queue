@@ -16,9 +16,14 @@ await send('Page.navigate', { url: base + '/#/dashboard' }); await sleep(1800);
 await ev(`localStorage.setItem('queue-welcome-v1','1'); localStorage.setItem('queue-theme','${theme}'); localStorage.removeItem('queue-brand'); sessionStorage.setItem('queue-phone-ok','1'); localStorage.setItem('queue-preview-ui','on'); localStorage.removeItem('queue-preview-safe');`);
 await send('Page.reload'); await sleep(2800);
 if (setup) { await ev(`(async () => { const w=(ms)=>new Promise(r=>setTimeout(r,ms)); ${setup} })()`); await sleep(2800); }
-await ev(`(async () => { document.activeElement?.blur?.(); const st = document.createElement('style'); st.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important} .demo-tag,.demo-note,.welcome-card .hl-label{display:none!important}'; document.head.append(st);
-  for (const v of document.querySelectorAll('video')) { try { v.pause(); v.currentTime = 0.8; } catch {} } for (const s of document.querySelectorAll('#content, .content')) s.scrollTop = 0; await new Promise(r => setTimeout(r, 1200)); })()`);
+const ready = await ev(`(async () => { document.activeElement?.blur?.(); const st = document.createElement('style'); st.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important} .demo-tag,.demo-note,.demo-only,.welcome-card .hl-label{display:none!important}'; document.head.append(st);
+  for (const v of document.querySelectorAll('video')) { try { v.pause(); v.currentTime = 0.8; } catch {} } for (const s of document.querySelectorAll('#content, .content')) s.scrollTop = 0; await new Promise(r => setTimeout(r, 1200));
+  /* wait (max 20 s) until every visible video shows a decoded frame and every visible image has loaded, so no thumbnail is shot blank */
+  const vis = (e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.bottom > 0 && b.top < innerHeight; };
+  for (let t = 0; t < 100; t++) { const vids = [...document.querySelectorAll('video')].filter(vis), imgs = [...document.images].filter(vis); if (vids.every(v => v.readyState >= 2 && !v.seeking) && imgs.every(i => i.complete && i.naturalWidth > 0)) break; await new Promise(r => setTimeout(r, 200)); }
+  await new Promise(r => setTimeout(r, 400));
+  return [...document.querySelectorAll('video')].filter(vis).filter(v => v.readyState < 2 || v.seeking).length + [...document.images].filter(vis).filter(i => !(i.complete && i.naturalWidth > 0)).length; })()`);
 const r = await send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: +W, height: +H, scale: 1 } });
 fs.writeFileSync(out, Buffer.from(r.data, 'base64'));
-console.log(out, fs.statSync(out).size);
+const blanks = ready?.result?.result?.value ?? ready?.result?.value; console.log(out, fs.statSync(out).size, 'blank-thumbs=' + blanks);
 ws.close(); chrome.kill(); process.exit(0);

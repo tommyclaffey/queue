@@ -32,9 +32,9 @@ ARG DEMO_PLAN_SHA256=7b65b1db0e9f8f33469822bddce77ad19a5fac7e1f8316faa200ad840c0
 RUN set -e; cd /tmp; for p in $DEMO_PLAN_PARTS; do curl -fsSL --retry 3 -o "plan-$p" "$DEMO_PLAN/queue-demo-assets-v3.part-$p"; done; \
     cat plan-* > plan.tar; echo "$DEMO_PLAN_SHA256  plan.tar" | sha256sum -c -; \
     tar -xf plan.tar -C /app; rm -f plan-* plan.tar; find /app/demo -name '._*' -delete
-# Oct 17: the five account logos redrawn with padding, so the whole mark fits inside the round avatar.
-ARG DEMO_LOGOS=https://github.com/tommyclaffey/queue/releases/download/demo-assets-v4/queue-demo-assets-v4.tar
-ARG DEMO_LOGOS_SHA256=c9eb674e91ff6b4b7fac62dd04de6eb0aeeeea1e4682c9ee07cd3c68d36bcf20
+# Oct 17: the account logos redrawn with clear space (mark within 48% of the avatar width, centred), so nothing crowds the round crop.
+ARG DEMO_LOGOS=https://github.com/tommyclaffey/queue/releases/download/demo-assets-v5/queue-demo-assets-v5.tar
+ARG DEMO_LOGOS_SHA256=25a5e4ef8a8f61d94804c79c16072ab91306437d86e51b521d0644d3460d7ced
 RUN set -e; cd /tmp; curl -fsSL --retry 3 -o logos.tar "$DEMO_LOGOS"; echo "$DEMO_LOGOS_SHA256  logos.tar" | sha256sum -c -; \
     tar -xf logos.tar -C /app; rm -f logos.tar
 COPY package.json ./
