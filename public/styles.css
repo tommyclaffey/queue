@@ -939,3 +939,7 @@ select.input:not(.select-sm) { min-height: 43px; }
 /* Oct 17: the avatar ring is drawn inside the circle. As an outside box-shadow it was clipped on the left wherever the avatar sits at the edge of an overflow:hidden box (the Up next and queue caption lines), so logos looked cut off. */
 .av { box-shadow: none; outline: 1px solid var(--avatar-ring); outline-offset: -1px; }
 .av-stack .av { box-shadow: 0 0 0 2px var(--surface-1); }
+
+/* Oct 17: Up next pages through everything scheduled */
+.upnext-more { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 18px; border-top: 1px solid var(--border-subtle); }
+.upnext-more[hidden] { display: none; }

@@ -433,11 +433,21 @@ VIEWS.dashboard = (c) => {
   const upCard = el('div', { class: 'card flush' }, el('div', { class: 'row', style: 'padding:16px 18px' }, el('h2', { class: 'h3', style: 'flex:1' }, 'Up next'), btn('View queue →', 'ghost', () => (location.hash = '#/queue'))));
   if (!up.length) upCard.append(el('div', { class: 'empty' }, el('div', { class: 'h3' }, 'Nothing scheduled'), el('div', {}, 'Your next post will show up here.'), el('div', { style: 'margin-top:14px' }, btn('New post', 'primary', () => (location.hash = '#/new')))));
   let lastDay = '';
-  for (const p of up.slice(0, 7)) {
-    const d = new Date(p.publishAt); const day = fmtDay(d);
-    if (day !== lastDay) { upCard.append(el('div', { class: 'upnext-day label' }, day)); lastDay = day; }
-    upCard.append(el('div', { class: 'upnext-row clickable', on: { click: (e) => { if (!e.target.closest('button')) openPost(p); } } }, el('div', { class: 'time' }, fmtTime(d)), thumb(p), el('div', { class: 'cap' }, postTitle(p), curBrand() ? null : el('div', { class: 'small muted' }, brandChip(p))), platformStack(p), pill(statusOf(p)), btn('Edit', 'ghost', () => editPost(p))));
-  }
+  // Up next fills the card to the height of the column beside it, then "Show 12 more" pages through everything scheduled (Tommy, Oct 17: it stopped at 7 and left a gap)
+  let shownUp = 0;
+  const moreUp = el('div', { class: 'upnext-more' });
+  const addUp = (n) => {
+    for (const p of up.slice(shownUp, shownUp + n)) {
+      const d = new Date(p.publishAt); const day = fmtDay(d);
+      if (day !== lastDay) { upCard.insertBefore(el('div', { class: 'upnext-day label' }, day), moreUp); lastDay = day; }
+      upCard.insertBefore(el('div', { class: 'upnext-row clickable', on: { click: (e) => { if (!e.target.closest('button')) openPost(p); } } }, el('div', { class: 'time' }, fmtTime(d)), thumb(p), el('div', { class: 'cap' }, postTitle(p), curBrand() ? null : el('div', { class: 'small muted' }, brandChip(p))), platformStack(p), pill(statusOf(p)), btn('Edit', 'ghost', () => editPost(p))), moreUp);
+    }
+    shownUp = Math.min(up.length, shownUp + n);
+    const left = up.length - shownUp;
+    moreUp.replaceChildren(...(left > 0 ? [btn(`Show ${Math.min(12, left)} more`, 'ghost', () => addUp(12)), el('span', { class: 'small muted' }, `${left} more scheduled`)] : []));
+    moreUp.hidden = left <= 0;
+  };
+  if (up.length) { upCard.append(moreUp); addUp(7); }
   // Right column
   const right = el('div', { class: 'stack' });
   const att = el('div', { class: 'card stack', style: 'gap:10px', 'data-tour': 'attention' }, el('h2', { class: 'h3' }, 'Needs your attention'));
@@ -467,6 +477,7 @@ VIEWS.dashboard = (c) => {
     right.append(act);
   }
   main.append(upCard, right);
+  requestAnimationFrame(() => { if (right.offsetTop > upCard.offsetTop + 8) return; /* stacked (narrow screens): keep 7 + Show more */ let guard = 0; while (shownUp < up.length && upCard.offsetHeight < right.offsetHeight - 24 && guard++ < 60) addUp(1); }); // fill beside the right column on desktop
   c.append(main);
   const chart = qualityChart();
   if (chart) c.append(chart);
