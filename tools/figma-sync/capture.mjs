@@ -22,7 +22,7 @@ if (setup) { await ev(`(async () => { ${setup} })()`); await sleep(2600); }
 // settle: freeze videos at 0.8s, blur focus, stop animations, scroll to top
 await ev(`(async () => {
   document.activeElement?.blur?.();
-  const st = document.createElement('style'); st.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important} .demo-tag,.demo-note,.welcome-card .hl-label{display:none!important}'; document.head.append(st);
+  const st = document.createElement('style'); st.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important} .demo-tag,.demo-note,.demo-only,.welcome-card .hl-label{display:none!important}'; document.head.append(st);
   for (const v of document.querySelectorAll('video')) { try { v.pause(); v.currentTime = 0.8; } catch {} }
   for (const s of document.querySelectorAll('#content, .content')) s.scrollTop = 0;
   await new Promise(r => setTimeout(r, 900));
@@ -107,6 +107,7 @@ const data = await ev(`(() => {
     const bcols = [cs.borderTopColor, cs.borderRightColor, cs.borderBottomColor, cs.borderLeftColor].map(parseColor);
     const hasBorder = bw.some((b, i) => b > 0 && bcols[i] && cs[['borderTopStyle', 'borderRightStyle', 'borderBottomStyle', 'borderLeftStyle'][i]] !== 'none');
     const sh = shadows(cs.boxShadow);
+    const bbm = /blur\\(([\\d.]+)px/.exec(cs.backdropFilter || ''); // backdrop-filter blur → Figma background blur
     const clip = (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') && tag !== 'body' && tag !== 'html';
     const scrollY = /auto|scroll/.test(cs.overflowY) && el.scrollHeight > el.clientHeight + 2;
     const scrollX = /auto|scroll/.test(cs.overflowX) && el.scrollWidth > el.clientWidth + 2;
@@ -147,7 +148,7 @@ const data = await ev(`(() => {
     let myIdx = parentIdx, myRect = parentRect;
     if (makeFrame && !isImg) {
       myIdx = nodes.length; myRect = r;
-      nodes.push({ t: 'F', p: parentIdx, x: r4(r.left - parentRect.left), y: r4(r.top - parentRect.top), w: r4(r.width), h: r4(r.height), n: name, bg: bg || undefined, gr: grad || undefined, rad: radius(cs, r.width, r.height), bw: hasBorder ? bw : undefined, bc: hasBorder ? bcols : undefined, sh: sh || undefined, clip: clip ? 1 : undefined, sy: scrollY ? 1 : undefined, sx: scrollX ? 1 : undefined, op: op < 1 ? op : undefined, link: link || undefined });
+      nodes.push({ t: 'F', p: parentIdx, x: r4(r.left - parentRect.left), y: r4(r.top - parentRect.top), w: r4(r.width), h: r4(r.height), n: name, bg: bg || undefined, gr: grad || undefined, rad: radius(cs, r.width, r.height), bw: hasBorder ? bw : undefined, bc: hasBorder ? bcols : undefined, sh: sh || undefined, clip: clip ? 1 : undefined, sy: scrollY ? 1 : undefined, sx: scrollX ? 1 : undefined, op: op < 1 ? op : undefined, bb: bbm ? +bbm[1] : undefined, link: link || undefined });
       for (const p of pseudos) {
         const pw = px(p.width), ph = px(p.height);
         const pl = p.left !== 'auto' ? px(p.left) : r.width - px(p.right) - pw; const pt = p.top !== 'auto' ? px(p.top) : r.height - px(p.bottom) - ph;

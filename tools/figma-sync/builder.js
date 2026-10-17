@@ -89,6 +89,7 @@ for (let i = 0; i < D.nodes.length; i++) {
       }
       n.clipsContent = !!d.clip;
       if (d.op != null) n.opacity = d.op;
+      if (d.bb) n.effects = [...n.effects, { type: 'BACKGROUND_BLUR', blurType: 'NORMAL', radius: d.bb, visible: true }];
       if (d.sy || d.sx) { n.clipsContent = true; n.overflowDirection = d.sy && d.sx ? 'BOTH' : d.sy ? 'VERTICAL' : 'HORIZONTAL'; }
     } else if (d.t === 'T') {
       n = figma.createText();

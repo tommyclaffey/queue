@@ -35,3 +35,12 @@ bound to the Queue variables. Nothing here ships with the app.
 - `pillcenter.js` — run in Figma after every rebuild (set `const PAGE` first). Centres every pill's content, centres each item in a pill row, lines counts up with their labels, puts wrapped labels back on one line, and optically centres circles and short-number badges by their rendered ink (`absoluteRenderBounds`), because digits like 1 sit off-centre in a centred text box. Safe to re-run.
 - Captures and mockups hide `.demo-tag`, `.demo-note` and the welcome card's "Live demo" label (rule: no demo labels in prototypes or mockups).
 - Mockups follow the Oct 14 rule: width 1440, density = export width ÷ 1440 (13" @1.78, 16" @2.4, 5K @3.56). 5K images go into Figma as two halves.
+
+## Consistency checks (Oct 17)
+- `consistaudit.mjs <base> <W> <H> <mobile 0|1> <screens.json>` — every button, pill, chip, tag, count, input and card on every screen, grouped by size / radius / type size. Anything marked ⚠ comes in more than one variant: either it's a real state (selected, small) or it's inconsistent. Families today: buttons 39 / small 30 (phone 39 / 34), pill toolbar controls 37, form fields 43, tags 24, cards 18 or flush.
+- `previewaudit.mjs <base> <W> <H> <mobile>` — every device preview, every platform tab: device size, column gaps, controls. All previews use `.preview-col` (16 px rhythm, clear space around the device).
+
+## Oct 17 — rules pass
+- Captures hide `.demo-only` too (the phone More menu's tour + welcome-card rows only exist in demo mode).
+- `backdrop-filter: blur()` is captured (`bb`) and built as a Figma BACKGROUND_BLUR, so translucent bars (phone tab bar, desktop top bar) don't show the content under them as sharp text.
+- `rebuild.js` = rebuild + logo colours + chevrons + full centring in one Figma call. `wire.js` has no tour rules: both prototypes start at 1.1 (flows 1–3, desktop + phone).

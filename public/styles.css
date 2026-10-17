@@ -804,10 +804,12 @@ button.demo-tag:focus-visible { outline: 2px solid var(--info); outline-offset: 
   .queue-table td.cb, .queue-table td:nth-child(5) { display: none; }
   .queue-table td:nth-child(2) { grid-area: post; min-width: 0; }
   .queue-table td:nth-child(3) { grid-area: when; padding-left: 42px !important; }
-  .queue-table td:nth-child(4) { grid-area: status; justify-self: end; align-self: center; }
+  .queue-table td:nth-child(4) { grid-area: status; justify-self: end; align-self: start; margin-top: -2px !important; } /* the status pill lines up with the time, not the middle of time + person */
   .queue-table td:nth-child(6) { grid-area: act; }
   .queue-table tr.attention { background: color-mix(in srgb, var(--warning-subtle) 45%, transparent); }
   .queue-table .post-cell .cap { max-width: none; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .queue-table .post-cell { align-items: flex-start; } /* thumbnail top-aligned with the title, like the dashboard's Up next */
+  .queue-table .post-cell > .thumb, .queue-table .post-cell > video, .queue-table .post-cell > img { margin-top: 2px; }
   .tabs { overflow-x: auto; scrollbar-width: none; margin-left: -16px; margin-right: -16px; padding: 0 16px; gap: 18px; }
   .tabs button { flex: none; min-height: 40px; }
   .bulkbar { flex-wrap: wrap; }
@@ -835,7 +837,7 @@ button.demo-tag:focus-visible { outline: 2px solid var(--info); outline-offset: 
 .phone .ph-status.ph-light { color: #000; }
 .phone .ph-time { position: absolute; top: 9px; left: 0; width: 71px; text-align: center; font: 600 9px/10px -apple-system, "SF Pro Text", Inter, sans-serif; letter-spacing: -.1px; text-shadow: none; }
 .phone .ph-island { position: absolute; top: 5.6px; left: 50%; width: 64.5px; height: 19px; margin-left: -32.25px; border-radius: 10px; background: #000; }
-.phone .ph-icons { position: absolute; top: 11px; right: 15px; width: 37px; height: 7px; }
+.phone .ph-icons { position: absolute; top: 11px; right: 13.3px; width: 38px; height: 6.66px; } /* spec at the preview scale (206 / 402): 74.2 × 13 group, 26 pt from the edge */
 .phone .ph-icons svg { display: block; width: 100%; height: 100%; }
 .phone .ph-home { position: absolute; bottom: 4px; left: 50%; width: 71px; height: 2.6px; margin-left: -35.5px; border-radius: 2px; background: #fff; z-index: 6; pointer-events: none; }
 .phone .ph-home.ph-light { background: #000; }
@@ -914,3 +916,17 @@ button.demo-tag:focus-visible { outline: 2px solid var(--info); outline-offset: 
   .stepper .st + .st::before { width: 14px; margin-right: 2px; }
   .stepper .n { width: 24px; height: 24px; font-size: 12px; }
 }
+
+/* preview column: room to breathe (Tommy, Oct 17: "spacing feels crowded") */
+.preview-col { gap: 16px; }
+.preview-col > .label { margin-bottom: -6px; } /* the label stays close to the buttons it names */
+.preview-col .ptabs { gap: 8px; }
+.preview-col .phone.device { margin: 14px 7px 16px; } /* clear space beyond the device ring, above and below */
+.preview-col .preview-note { max-width: 300px; }
+
+/* consistency pass (Tommy, Oct 17: "consistent on every single screen")
+   one height per control family: regular buttons 39 (ghost and icon buttons too, so a Cancel next to a Save lines up),
+   small buttons 30, pill toolbar controls 37, form fields 43, tags 24 */
+.btn:not(.small) { min-height: 39px; }
+select.input:not(.select-sm) { min-height: 43px; }
+.role-tag { height: 24px; line-height: 1; box-sizing: border-box; }

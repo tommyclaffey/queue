@@ -235,7 +235,7 @@ const byBrand = (posts) => (curBrand() ? posts.filter((p) => p.brand === brandSe
 const brandChip = (p, withName = true) => { const b = brandOf(p); return b ? el('span', { class: 'brand-chip', title: `${b.name} · ${b.type}` }, avatarEl(b, 'av-xs'), withName ? `@${b.handle}` : null) : null; };
 function brandPick() {
   if (!isDemo() || !brands().length) return null;
-  const sel = el('select', { class: 'select small', 'aria-label': 'Posting as', on: { change: () => { C.brand = sel.value; render(); } } }, ...brands().map((b) => el('option', { value: b.id }, `Posting as @${b.handle}`)));
+  const sel = el('select', { class: 'input select-sm', 'aria-label': 'Posting as', on: { change: () => { C.brand = sel.value; render(); } } }, ...brands().map((b) => el('option', { value: b.id }, `Posting as @${b.handle}`)));
   sel.value = postingAs().id;
   return sel;
 }
@@ -331,7 +331,7 @@ function moreSheet() {
     const me = meMember();
     m.append(el('h2', { class: 'h2' }, 'More'),
       el('div', { class: 'sheet-list' }, row('library', 'Library', 'Every video and photo', go('#/library')), row('quality', 'Quality', 'Quality Lab and benchmark', go('#/quality')), row('accounts', 'Accounts', 'Platforms and connections', go('#/accounts')), row('settings', 'Settings', 'Posting times, team, theme', go('#/settings'))),
-      isDemo() ? el('div', { class: 'sheet-list' }, row('play', 'Take the tour', '11 steps, about a minute', () => { close(); startTour(); }), row('dashboard', 'Welcome card', 'What this demo is', () => { close(); showWelcome(); })) : null,
+      isDemo() ? el('div', { class: 'sheet-list demo-only' }, row('play', 'Take the tour', '11 steps, about a minute', () => { close(); startTour(); }), row('dashboard', 'Welcome card', 'What this demo is', () => { close(); showWelcome(); })) : null,
       me ? el('div', { class: 'row', style: 'gap:10px;padding:4px 2px' }, avatarEl(me, 'av-md'), el('div', {}, el('b', { style: 'font-weight:500' }, me.name), el('div', { class: 'small muted' }, me.role))) : null,
       el('div', { class: 'foot' }, btn('Close', 'secondary', close)));
   });

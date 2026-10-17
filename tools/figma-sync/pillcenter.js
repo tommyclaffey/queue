@@ -45,7 +45,7 @@ for (const p of pills) {
 // 3. counts next to a label (tabs "All 81", sidebar "Queue 2"): the count's middle lines up with the label's middle
 let countsAligned = 0;
 for (const c of page.findAll(n => n.type === 'FRAME' && /^\.(n|count)(\.|$)/.test(n.name) && !inInstance(n))) {
-  if (c.parent && /^\.tab([ .]|$)/.test(c.parent.name)) continue; // phone tab bar badge sits on the icon's corner, not beside a label
+  if (c.parent && /^\.tab([ .]|$)/.test(c.parent.name)) continue; if (!c.parent || c.parent.height > 60) continue; // only counts sitting in a row next to their label; a step number in a flattened page must not jump to the page's first text // phone tab bar badge sits on the icon's corner, not beside a label
   const lab = c.parent && c.parent.children.find(k => k.type === 'TEXT' && k.visible); if (!lab) continue;
   c.y = Math.round((lab.y + lab.height / 2 - c.height / 2) * 2) / 2; countsAligned++;
 }
