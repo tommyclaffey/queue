@@ -1,4 +1,4 @@
-// rebuild.js — run inside Figma (use_figma). Prepend: const PAGE = '39:12', MODE = '39:0', BUILDER = '<id>', JOBS = [[dataId, mob, code], ...];
+// rebuild.js — run inside Figma (use_figma). Prepend: const PAGE = '39:12' (desktop) or '288:64' (phone), THEME = 'Light'|'Dark', MODE = '39:0' (light) or '39:1' (dark), BUILDER = '<id>', JOBS = [[dataId, mob, code], ...];
 // Rebuilds each screen from its capture payload, then the whole clean-up pass in one go:
 // lime logo colours, current brand-logo images, clean dropdown chevrons, and centring (pills, rows, counts, circles by ink).
 const page = await figma.getNodeByIdAsync(PAGE); await figma.setCurrentPageAsync(page);
@@ -6,7 +6,7 @@ const bn = await figma.getNodeByIdAsync(BUILDER); const raw = (bn.type === 'TEXT
 const bin = atob(raw.split(':')[2]); let src = ''; for (let i = 0; i < bin.length;) { const c = bin.charCodeAt(i); if (c < 128) { src += String.fromCharCode(c); i++; } else if (c < 224) { src += String.fromCharCode(((c & 31) << 6) | (bin.charCodeAt(i + 1) & 63)); i += 2; } else { src += String.fromCharCode(((c & 15) << 12) | ((bin.charCodeAt(i + 1) & 63) << 6) | (bin.charCodeAt(i + 2) & 63)); i += 3; } }
 const build = new (Object.getPrototypeOf(async function () {}).constructor)('figma', 'P', src);
 const coll = await figma.variables.getVariableCollectionByIdAsync('VariableCollectionId:19:13');
-const secs = page.children.filter(n => n.type === 'SECTION' && /^(📱 )?[1-6] ·/.test(n.name));
+const secs = page.children.filter(n => n.type === 'SECTION' && /^(📱 )?[1-6] ·/.test(n.name) && (typeof THEME === 'undefined' || n.name.endsWith(' · ' + THEME))); // light + dark share a page (Oct 17): pass THEME
 const find = (mob, code) => { for (const s of secs.filter(s => s.name.startsWith('📱') === !!mob)) { const f = s.children.find(n => n.type === 'FRAME' && n.name.startsWith(code + ' ')); if (f) return f; } return null; };
 const done = [], errs = [], frames = [];
 for (const [data, mob, code] of JOBS) {
@@ -38,7 +38,7 @@ for (const fr of frames) {
     if (Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5) { for (const k of kids) { k.x -= dx; k.y -= dy; } moved++; } }
   for (const p of pills) { const kids = p.children.filter(c => c.visible && !/^hotspot/.test(c.name)); if (kids.length < 2 || kids.length > 4) continue; const top = Math.max(...kids.map(k => k.y)), bot = Math.min(...kids.map(k => k.y + k.height)); if (top >= bot) continue;
     for (const k of kids) { if (k.type === 'FRAME' && k.children.length === 1 && k.children[0].type === 'TEXT') { const t = k.children[0]; t.y = Math.round((k.height - t.height) / 2 * 2) / 2; } k.y = Math.round((p.height - k.height) / 2 * 2) / 2; } }
-  for (const c of fr.findAll(n => n.type === 'FRAME' && /^\.(n|count)(\.|$)/.test(n.name) && !inInstance(n))) { if (c.parent && /^\.tab([ .]|$)/.test(c.parent.name)) continue; if (!c.parent || c.parent.height > 60) continue; // only counts sitting in a row next to their label; a step number in a flattened page must not jump to the page's first text const lab = c.parent && c.parent.children.find(k => k.type === 'TEXT' && k.visible); if (!lab) continue; c.y = Math.round((lab.y + lab.height / 2 - c.height / 2) * 2) / 2; }
+  for (const c of fr.findAll(n => n.type === 'FRAME' && /^\.(n|count)(\.|$)/.test(n.name) && !inInstance(n))) { if (c.parent && /^\.tab([ .]|$)/.test(c.parent.name)) continue; if (!c.parent || c.parent.height > 60) continue; /* only counts in a row next to their label: a step number in a flattened page must not jump to the page's first text */ const lab = c.parent && c.parent.children.find(k => k.type === 'TEXT' && k.visible); if (!lab) continue; c.y = Math.round((lab.y + lab.height / 2 - c.height / 2) * 2) / 2; }
   const shortTextIn = (f) => { const k = f.children.filter(c => c.visible); return k.length === 1 && k[0].type === 'TEXT' && k[0].characters.trim().length <= 4 ? k[0] : null; };
   const isCircle = (f) => f.type === 'FRAME' && Math.abs(f.width - f.height) <= 1 && f.width <= 64 && rad(f) >= f.width / 2 - 1 && ((Array.isArray(f.fills) && f.fills.some(p => p.visible !== false && (p.opacity ?? 1) > 0.02)) || (Array.isArray(f.strokes) && f.strokes.length > 0));
   const isBadge = (f) => f.type === 'FRAME' && f.width <= 40 && f.height <= 40 && rad(f) >= 3 && Array.isArray(f.fills) && f.fills.some(p => p.visible !== false && (p.opacity ?? 1) > 0.02);

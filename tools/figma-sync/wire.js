@@ -1,5 +1,7 @@
 const page = await figma.getNodeByIdAsync(PAGE); await figma.setCurrentPageAsync(page);
-const secs = page.children.filter(n => n.type === 'SECTION' && /^(📱 )?[1-6] ·/.test(n.name));
+// Light and dark share one page per device (Oct 17). Run once per theme: prepend const PAGE = '39:12' | '288:64', THEME = 'Light' | 'Dark'.
+const secs = page.children.filter(n => n.type === 'SECTION' && /^(📱 )?[1-6] ·/.test(n.name) && n.name.endsWith(' · ' + THEME));
+const OTHER = THEME === 'Light' ? 'Dark' : 'Light'; const twins = {}; for (const s of page.children.filter(n => n.type === 'SECTION' && n.name.endsWith(' · ' + OTHER))) for (const f of s.children.filter(n => n.type === 'FRAME')) { const c = f.name.match(/^(\d\.\d)/); if (c) twins[c[1]] = f; }
 const G = { D: {}, M: {} };
 for (const s of secs) for (const f of s.children.filter(n => n.type === 'FRAME')) { const code = f.name.match(/^(\d\.\d)/); if (code) G[s.name.startsWith('📱') ? 'M' : 'D'][code[1]] = f; }
 const ROUTES = { D: { dashboard: '2.1', new: '3.1', calendar: '2.2', queue: '4.1', library: '5.1', quality: '5.2', accounts: '6.1', settings: '6.2' }, M: { dashboard: '2.1', new: '3.1', calendar: '2.6', queue: '4.1', library: '5.1', quality: '5.2', accounts: '6.1', settings: '6.2' } };
@@ -73,6 +75,10 @@ for (const [grp, froms, re, to, o = {}] of RULES) for (const g of grp === 'B' ? 
 }
 for (const [n, dest] of plan) await n.setReactionsAsync(R(dest));
 // flows
-const flows = [['1 · Full journey (from onboarding)', G.D['1.1']], ['2 · Daily use (dashboard)', G.D['2.1']], ['3 · Create a post', G.D['3.1']], ['📱 1 · Full journey — phone', G.M['1.1']], ['📱 2 · Daily use — phone', G.M['2.1']], ['📱 3 · Create a post — phone', G.M['3.1']]].filter(x => x[1]).map(([name, f]) => ({ nodeId: f.id, name }));
-page.flowStartingPoints = flows;
-return { hs, nav, rule, total: plan.size, miss, flows: flows.length, D: Object.keys(G.D).length, M: Object.keys(G.M).length };
+// theme toggle: the app's sun/moon button jumps to the same screen in the other theme
+let toggles = 0; for (const g of ['D', 'M']) for (const [c, f] of Object.entries(G[g])) { const b = f.findOne(n => n.type === 'FRAME' && /theme-btn/.test(n.name)); if (b && twins[c]) { await b.setReactionsAsync([{ trigger: { type: 'ON_CLICK' }, actions: [{ type: 'NODE', destinationId: twins[c].id, navigation: 'NAVIGATE', transition: { type: 'DISSOLVE', easing: { type: 'EASE_OUT' }, duration: 0.25 }, preserveScrollPosition: true }] }]); toggles++; } }
+// flows (set on the Light run only): portfolio viewers land on the light dashboard; onboarding last (Tommy, Oct 17)
+const pickF = (c) => Object.values(G).map(x => x[c]).find(Boolean);
+const flows = THEME !== 'Light' ? null : [['1 · Dashboard (start here)', pickF('2.1')], ['2 · Create a post', pickF('3.1')], ['3 · First-time setup (onboarding)', pickF('1.1')], ['4 · First-time setup · Dark', twins['1.1']]].filter(x => x[1]).map(([name, f]) => ({ nodeId: f.id, name }));
+if (flows) page.flowStartingPoints = flows;
+return { theme: THEME, toggles, hs, nav, rule, total: plan.size, miss, flows: flows ? flows.length : 'kept', D: Object.keys(G.D).length, M: Object.keys(G.M).length };

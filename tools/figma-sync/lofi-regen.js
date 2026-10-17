@@ -1,5 +1,5 @@
 const page = await figma.getNodeByIdAsync('3:2'); await figma.setCurrentPageAsync(page);
-const hi = await figma.getNodeByIdAsync('39:12'); await hi.loadAsync();
+const hi = await figma.getNodeByIdAsync(MOB ? '288:64' : '39:12'); await hi.loadAsync(); // phones live on 05a, desktop on 04a (Oct 17 split)
 const all = await figma.variables.getLocalVariablesAsync('COLOR');
 const W = {}; for (const v of all) if (v.variableCollectionId === 'VariableCollectionId:3:4') W[v.name] = v;
 const qcoll = await figma.variables.getVariableCollectionByIdAsync('VariableCollectionId:19:13');
@@ -19,10 +19,10 @@ const lofi = async (root) => {
     if (/scrim/i.test(n.name) && 'fills' in n && n.fills.length && n.width > 300) n.fills = n.fills.map(p => ({ ...p, opacity: 0.35 }));
   }
 };
-const pick = (pg, mob, code) => { for (const s of pg.children.filter(s => s.type === 'SECTION' && /^(📱 )?[1-6] ·/.test(s.name) && s.name.startsWith('📱') === mob)) { const f = s.children.find(n => n.type === 'FRAME' && n.name.startsWith(code + ' ')); if (f) return f; } return null; };
+const pick = (pg, mob, code, th) => { for (const s of pg.children.filter(s => s.type === 'SECTION' && /^(📱 )?[1-6] ·/.test(s.name) && s.name.startsWith('📱') === mob && (!th || s.name.endsWith(' · ' + th)))) { const f = s.children.find(n => n.type === 'FRAME' && n.name.startsWith(code + ' ')); if (f) return f; } return null; };
 const out = [], errs = [];
 for (const code of CODES) {
-  const src = pick(hi, MOB, code), t = pick(page, MOB, code);
+  const src = pick(hi, MOB, code, 'Light'), t = pick(page, MOB, code);
   if (!src || !t) { errs.push(code + (src ? '' : ' no src') + (t ? '' : ' no target')); continue; }
   const c = src.clone();
   if (MOB) { const par = t.parent; par.insertChild(par.children.indexOf(t), c); c.x = t.x; c.y = t.y; c.name = t.name; try { c.setExplicitVariableModeForCollection(qcoll, '39:0'); } catch (e) {} await lofi(c); c.fills = [P('bg/canvas')]; t.remove(); out.push(code + ' ' + c.id); }
