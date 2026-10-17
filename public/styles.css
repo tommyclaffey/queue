@@ -935,3 +935,7 @@ select.input:not(.select-sm) { min-height: 43px; }
 .pstack { gap: 3px; }
 .pstack .pbadge + .pbadge { margin-left: 0; }
 .pstack .pbadge { box-shadow: none; }
+
+/* Oct 17: the avatar ring is drawn inside the circle. As an outside box-shadow it was clipped on the left wherever the avatar sits at the edge of an overflow:hidden box (the Up next and queue caption lines), so logos looked cut off. */
+.av { box-shadow: none; outline: 1px solid var(--avatar-ring); outline-offset: -1px; }
+.av-stack .av { box-shadow: 0 0 0 2px var(--surface-1); }
