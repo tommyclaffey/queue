@@ -8,7 +8,8 @@ SCREENS = [  # name, desktop id, phone id
   ('New post · Video', '07', '07'), ('New post · Carousel', '08', '08'), ('New post · Story', '09', '09'),
   ('Queue', '11', '11'), ('Post detail', '12', '12'), ('Library', '14', '14'), ('Quality Lab', '15', '15'),
   ('Accounts', '16', '16'), ('Settings', '17', '17')]
-DEV = [('iPhone', 402, 786, 3, 1), ('Laptop 13', 1280, 832, 2, 0), ('Laptop 16', 1728, 1117, 2, 0), ('Desktop', 2560, 1440, 2, 0)]
+# Rule (Oct 14): the 1440 design at the device's exact pixels. Width 1440, density = export width / 1440, never reflowed.
+DEV = [('iPhone', 402, 786, 3, 1), ('Laptop 13', 1440, 1664 * 1440 / 2560, 2560 / 1440, 0), ('Laptop 16', 1440, 931, 2.4, 0), ('Desktop', 1440, 2880 * 1440 / 5120, 5120 / 1440, 0)]
 only = sys.argv[1] if len(sys.argv) > 1 else None
 for dev, w, h, dsf, mob in DEV:
   if only and dev != only: continue
@@ -18,4 +19,4 @@ for dev, w, h, dsf, mob in DEV:
       base = 'http://localhost:4403' if mob else 'http://localhost:4402'
       out = f"/tmp/qfig/mock/{dev.replace(' ', '')}-{theme}-{i:02d}.png"
       if STAMP and os.path.exists(out) and os.path.getmtime(out) > os.path.getmtime(STAMP): continue
-      subprocess.run(['node', '/tmp/qfig/mockshot.mjs', base, out, str(w), str(h), str(dsf), theme, js] + (['1'] if mob else []), timeout=120)
+      subprocess.run(['node', '/tmp/qfig/mockshot.mjs', base, out, str(w), repr(h), repr(dsf), theme, js] + (['1'] if mob else []), timeout=120)

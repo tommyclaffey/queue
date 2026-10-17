@@ -881,3 +881,36 @@ button.demo-tag:focus-visible { outline: 2px solid var(--info); outline-offset: 
 .ig-tabs .ig-i { width: 12px; height: 12px; }
 .phone .ig-tab-av .av { display: block; width: 13px; height: 13px; border-radius: 50%; object-fit: cover; }
 .phone.ig-light { background: #fff; }
+
+/* ---------------------------------------------------------------- tidy pass (Tommy, Oct 17): pills centred, labels never squeezed
+   1. Every pill, badge, count and outlined label: content centred both ways, kept on one line, never squashed by its row. */
+.pill, .chip, .fchip, .role-tag, .you-tag, .demo-tag, .hl-label, .quick button, .cell-add, .toast, .media-card .hover-cta, .phone .sub, .tabs .n, .nav a .count {
+  display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; flex-shrink: 0; font-variant-numeric: tabular-nums;
+}
+/* counts: a fixed height and line-height 1, so the number sits in the middle of its pill, not on the label's baseline */
+.tabs .n, .nav a .count { height: 18px; min-width: 18px; padding: 0 6px; line-height: 1; box-sizing: border-box; }
+.fchip span { line-height: 1; font-variant-numeric: tabular-nums; }
+/* 2. Labels next to things that can't shrink: the label keeps its words on one line, the row wraps instead */
+.row > .h3 { min-width: max-content; }
+.account .who .small, .team-row .txt .small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dest-row { flex-wrap: wrap; row-gap: 6px; }
+.dest-row .who { flex: 1 1 160px; }
+.row.small.muted { flex-wrap: wrap; row-gap: 4px; }
+.row.small.muted > span { white-space: nowrap; }
+@media (max-width: 760px) {
+  .row:has(> .h3) { flex-wrap: wrap; row-gap: 6px; }
+  .check-row.big { flex-wrap: wrap; }
+  .check-row.big > div:nth-child(2) { flex: 1 1 200px; min-width: 0; }
+  .check-row.big code.cmd { flex: 0 0 calc(100% - 42px); margin-left: 42px; box-sizing: border-box; overflow-wrap: anywhere; }
+  .team-row { flex-wrap: wrap; row-gap: 2px; }
+  .team-row .txt { flex: 1 1 0; }
+  .team-row > span.small:last-child { order: 5; flex: 1 0 100%; width: auto !important; text-align: left !important; padding-left: 48px; }
+  .set-row { flex-wrap: wrap; row-gap: 10px; }
+  .set-row .txt { flex: 1 1 100%; }
+  .card.row { flex-wrap: wrap; }
+  .how-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .stepper { gap: 8px; font-size: 13px; }
+  .stepper .st { white-space: nowrap; gap: 6px; }
+  .stepper .st + .st::before { width: 14px; margin-right: 2px; }
+  .stepper .n { width: 24px; height: 24px; font-size: 12px; }
+}

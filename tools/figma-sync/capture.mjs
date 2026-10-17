@@ -3,8 +3,8 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 const [,, base, out, W, H, theme, setup = '', mobile = ''] = process.argv;
-const port = 9455;
-const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', ['--headless=new', `--remote-debugging-port=${port}`, '--user-data-dir=/tmp/qfig/profile', `--window-size=${W},${H}`, '--hide-scrollbars', '--font-render-hinting=none', 'about:blank'], { stdio: 'ignore' });
+const port = +(process.env.PORT || 9455);
+const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', ['--headless=new', `--remote-debugging-port=${port}`, '--user-data-dir=/tmp/qfig/profile' + (process.env.PORT || ''), `--window-size=${W},${H}`, '--hide-scrollbars', '--font-render-hinting=none', 'about:blank'], { stdio: 'ignore' });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let ws; for (let i = 0; i < 60; i++) { try { const pg = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((x) => x.type === 'page'); if (pg) { ws = new WebSocket(pg.webSocketDebuggerUrl); break; } } catch {} await sleep(250); }
 await new Promise((r) => ws.addEventListener('open', r));
@@ -22,7 +22,7 @@ if (setup) { await ev(`(async () => { ${setup} })()`); await sleep(2600); }
 // settle: freeze videos at 0.8s, blur focus, stop animations, scroll to top
 await ev(`(async () => {
   document.activeElement?.blur?.();
-  const st = document.createElement('style'); st.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}'; document.head.append(st);
+  const st = document.createElement('style'); st.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important} .demo-tag,.demo-note,.welcome-card .hl-label{display:none!important}'; document.head.append(st);
   for (const v of document.querySelectorAll('video')) { try { v.pause(); v.currentTime = 0.8; } catch {} }
   for (const s of document.querySelectorAll('#content, .content')) s.scrollTop = 0;
   await new Promise(r => setTimeout(r, 900));

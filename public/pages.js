@@ -239,7 +239,7 @@ VIEWS.welcome = (c) => {
   const connected = isDemo() || (st && !st.dryRun && st.account);
   c.append(el('div', { class: 'welcome' },
     el('div', { class: 'wel-left' },
-      el('a', { class: 'logo', href: '#/dashboard' }, el('span', { class: 'logo-mark', html: '<svg viewBox="0 0 26 26" width="26" height="26" aria-hidden="true"><path class="tile" d="M8 0H18A8 8 0 0 1 26 8V26H8A8 8 0 0 1 0 18V8A8 8 0 0 1 8 0Z"/><path class="play" d="M11 10V16L16 13Z" stroke-width="1.6" stroke-linejoin="round"/></svg>' }), el('span', { class: 'logo-word' }, 'Queue')),
+      el('a', { class: 'logo', href: '#/dashboard' }, el('span', { class: 'logo-mark', html: '<svg viewBox="0 0 26 26" width="26" height="26" aria-hidden="true"><path class="tile" fill="#C6F432" d="M8 0H18A8 8 0 0 1 26 8V26H8A8 8 0 0 1 0 18V8A8 8 0 0 1 8 0Z"/><path class="play" fill="#1D1D1F" stroke="#1D1D1F" d="M11 10V16L16 13Z" stroke-width="1.6" stroke-linejoin="round"/></svg>' }), el('span', { class: 'logo-word' }, 'Queue')),
       el('h1', { class: 'wel-h' }, 'Post Reels without losing quality.'),
       el('p', { class: 'muted' }, "Queue checks every video against Instagram's spec, fixes only what needs fixing, hands Instagram your original file — then posts it on time."),
       el('div', { class: 'stack', style: 'gap:14px' }, step(1, 'Connect Instagram', 'Creator or Business account. About 2 minutes.', true), step(2, 'Run the setup check', 'We test the connection, publishing permission and video tools.'), step(3, 'Schedule a test Reel', 'Low-stakes first post to prove it end to end.')),
@@ -399,7 +399,7 @@ function uploadStep(c) {
   for (const t of ['dragleave', 'drop']) dz.addEventListener(t, (e) => { e.preventDefault(); dz.classList.remove('over'); });
   dz.addEventListener('drop', (e) => e.dataTransfer.files[0] && doUpload(e.dataTransfer.files[0]));
   const multi = isDemo();
-  const how = el('div', { class: 'grid', style: 'grid-template-columns:repeat(3,minmax(0,1fr));margin-top:16px' }, ...[
+  const how = el('div', { class: 'grid how-grid', style: 'grid-template-columns:repeat(3,minmax(0,1fr));margin-top:16px' }, ...[
     ['1', 'We check it', multi ? "Every file compared with each platform's own spec — resolution, codec, colour, bitrate, length." : "Every property compared with Instagram's Reels spec — resolution, codec, colour, bitrate, length."],
     ['2', "We fix only what's needed", 'Cheapest safe fix first: lossless rewrap → audio-only fix → one clean encode. Never more than one.'],
     multi ? ['3', 'Each platform gets the best it accepts', 'YouTube keeps your 4K HDR original. Others get one careful version each — never a second round of compression from us.'] : ['3', 'Instagram gets your file', 'No third-party compression in between. Instagram receives exactly the file Queue prepared.'],

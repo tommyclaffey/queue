@@ -76,6 +76,6 @@ for (const [grp, froms, re, to, o = {}] of RULES) for (const g of grp === 'B' ? 
 }
 for (const [n, dest] of plan) await n.setReactionsAsync(R(dest));
 // flows
-const flows = [['1 · Full journey (from onboarding)', G.D['1.1']], ['2 · Daily use (dashboard)', G.D['2.1']], ['3 · Create a post', G.D['3.1']], ['📱 1 · Full journey — phone', G.M['1.1']], ['📱 2 · Daily use — phone', G.M['2.1']], ['📱 3 · Create a post — phone', G.M['3.1']]].filter(x => x[1]).map(([name, f]) => ({ nodeId: f.id, name }));
+const flows = [['1 · Full journey (from onboarding)', G.D['1.1']], ['2 · Daily use (dashboard)', G.D['2.1']], ['3 · Create a post', G.D['3.1']], ['📱 1 · Full journey — phone', G.M['1.1']], ['📱 2 · Daily use — phone', G.M['2.1']], ['📱 3 · Create a post — phone', G.M['3.1']], ['4 · Welcome card + tour', G.D['1.3']], ['📱 4 · Welcome card + tour — phone', G.M['1.3']]].filter(x => x[1]).map(([name, f]) => ({ nodeId: f.id, name }));
 page.flowStartingPoints = flows;
 return { hs, nav, rule, total: plan.size, miss, flows: flows.length, D: Object.keys(G.D).length, M: Object.keys(G.M).length };

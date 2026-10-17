@@ -29,3 +29,9 @@ bound to the Queue variables. Nothing here ships with the app.
 - `mockall.py` captures the 12 main screens at all 4 device sizes, light + dark → `mock/<Device>-<theme>-<NN>.png` (calls `mockshot.mjs`, headless Chrome at 3x for iPhone, 2x otherwise).
 - `upmock.mjs` uploads them via `upload_assets` URLs and saves hashes to `mock/hashes.json`. Frames in Figma are point-size with PNG export at 3x / 2x, so exports hit the native pixel sizes.
 - `upto.mjs` replaces the image in existing mockup frames: get `upload_assets` URLs with `nodeIds` (the frames), list `{file, node}` pairs in a jobs JSON, then `JOBS=jobs.json node upto.mjs 0 <urls...>`. Uploads 8 at a time with retries. `mockall.py` accepts `STAMP=<file>` to skip shots newer than it, and `PORT=` runs several captures in parallel.
+
+## Tidy checks (Oct 17)
+- `pillaudit.mjs <base> <screens.json> <W> <H> [mobile]` — headless check of the running app. `MODE=stack` lists labels squeezed to one or two words per line; default mode saves 4× crops of every pill to /tmp/pills.
+- `pillcenter.js` — run in Figma after every rebuild (set `const PAGE` first). Centres every pill's content, centres each item in a pill row, lines counts up with their labels, puts wrapped labels back on one line, and optically centres circles and short-number badges by their rendered ink (`absoluteRenderBounds`), because digits like 1 sit off-centre in a centred text box. Safe to re-run.
+- Captures and mockups hide `.demo-tag`, `.demo-note` and the welcome card's "Live demo" label (rule: no demo labels in prototypes or mockups).
+- Mockups follow the Oct 14 rule: width 1440, density = export width ÷ 1440 (13" @1.78, 16" @2.4, 5K @3.56). 5K images go into Figma as two halves.
