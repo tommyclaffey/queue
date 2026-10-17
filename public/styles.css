@@ -930,3 +930,8 @@ button.demo-tag:focus-visible { outline: 2px solid var(--info); outline-offset: 
 .btn:not(.small) { min-height: 39px; }
 select.input:not(.select-sm) { min-height: 43px; }
 .role-tag { height: 24px; line-height: 1; box-sizing: border-box; }
+
+/* Oct 17: platform logos never overlap. The stack used -5px, which is 25% of a 20px badge and more than the logo's 22% clear space, so each circle cut the logo before it (rule: never crop a third-party logo). Side by side with a small gap instead. */
+.pstack { gap: 3px; }
+.pstack .pbadge + .pbadge { margin-left: 0; }
+.pstack .pbadge { box-shadow: none; }
