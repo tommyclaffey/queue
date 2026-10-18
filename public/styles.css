@@ -943,3 +943,20 @@ select.input:not(.select-sm) { min-height: 43px; }
 /* Oct 17: Up next pages through everything scheduled */
 .upnext-more { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 18px; border-top: 1px solid var(--border-subtle); }
 .upnext-more[hidden] { display: none; }
+
+/* Oct 17: every dropdown uses Queue's chevron with even spacing. The browser's own arrow sat ~8px from the right edge, tighter than the text's padding, and didn't match the pill dropdowns. */
+select.input:not(.select-sm) { appearance: none; -webkit-appearance: none; padding-right: 40px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2386868B' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 16px center; background-size: 12px 12px; }
+
+/* Oct 17 (Tommy): previews are bigger. The overlays were laid out for a 256 px phone and shrunk to 206; now the phone is 256 wide (×1.2427),
+   so every preview shows its platform UI at its intended size, and the composer's left column ends level with the Caption card.
+   transform keeps every inner layout untouched; the margins give the scaled phone its real space in the column. */
+.preview-col .phone.device { transform: scale(1.2427); transform-origin: 0 0; margin: 17px 9px 130px 9px; }
+/* Instagram feed tab bar: the 17 px home strip sits below the 25 px bar, not inside it (border-box squeezed the icons over the divider) */
+.ig-tabs { box-sizing: content-box; }
+/* composer: Expected quality card */
+.qbig { font: 650 30px/1 var(--font); letter-spacing: -.8px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.qbars.qbars-sm { height: 106px; gap: 8px; }
+.qbars-sm .qbar { max-width: none; }
+.qkey { display: inline-block; width: 14px; border-top: 1.5px dashed var(--warning); vertical-align: middle; margin-right: 6px; }

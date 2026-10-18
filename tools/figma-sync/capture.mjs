@@ -60,13 +60,16 @@ const data = await ev(`(() => {
   };
   const visible = (el, cs) => cs.display !== 'none' && cs.visibility !== 'hidden' && parseFloat(cs.opacity) > 0;
   const weight = (w) => ({ 100: 'Thin', 200: 'ExtraLight', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'SemiBold', 700: 'Bold', 800: 'ExtraBold', 900: 'Black' }[Math.round(parseInt(w) / 100) * 100] || 'Regular');
-  const family = (f) => /mono/i.test(f) ? 'Geist Mono' : 'Geist';
+  // Oct 17: map the first family in the stack, so the phone previews keep SF Pro / Inter instead of all turning into Geist
+  const family = (f) => { const first = (f.split(',')[0] || '').replace(/["']/g, '').trim(); if (/mono/i.test(first)) return 'Geist Mono'; if (/^(-apple-system|system-ui|BlinkMacSystemFont|SF Pro)/i.test(first)) return 'SF Pro'; if (/^Inter/i.test(first)) return 'Inter'; return /mono/i.test(f) ? 'Geist Mono' : 'Geist'; };
+  // scale of an element inside a CSS transform (the phone preview is scaled), so text keeps its on-screen size
+  const scaleOf = (el) => { const e = el && el.nodeType === 1 ? el : el && el.parentElement; if (!e || !e.offsetWidth) return 1; const k = e.getBoundingClientRect().width / e.offsetWidth; return k > 0.2 && k < 5 ? Math.round(k * 10000) / 10000 : 1; };
   const linkOf = (el) => {
     const a = el.closest('a[href^="#/"]'); if (a === el) return a.getAttribute('href').slice(2);
     if (el.dataset.qlink) return el.dataset.qlink;
     return null;
   };
-  const textStyle = (cs) => ({ ff: family(cs.fontFamily), fw: weight(cs.fontWeight), fs: px(cs.fontSize), lh: cs.lineHeight === 'normal' ? null : px(cs.lineHeight), ls: cs.letterSpacing === 'normal' ? 0 : px(cs.letterSpacing), c: parseColor(cs.color) || [0, 0, 0, 1], up: cs.textTransform === 'uppercase' ? 1 : 0, it: cs.fontStyle === 'italic' ? 1 : 0, ul: /underline/.test(cs.textDecorationLine) ? 1 : 0, al: cs.textAlign });
+  const textStyle = (cs, el) => { const k = scaleOf(el); return { ff: family(cs.fontFamily), fw: weight(cs.fontWeight), fs: r4(px(cs.fontSize) * k), lh: cs.lineHeight === 'normal' ? null : r4(px(cs.lineHeight) * k), ls: cs.letterSpacing === 'normal' ? 0 : r4(px(cs.letterSpacing) * k), c: parseColor(cs.color) || [0, 0, 0, 1], up: cs.textTransform === 'uppercase' ? 1 : 0, it: cs.fontStyle === 'italic' ? 1 : 0, ul: /underline/.test(cs.textDecorationLine) ? 1 : 0, al: cs.textAlign }; };
   function addText(text, rects, cs, parentIdx, parentRect, el, node) {
     // Inline text that wraps and starts mid-line: split it into one text node per line, so lines don't overlap.
     const rs0 = [...rects].filter((r) => r.width > 0.5 && r.height > 0.5);
@@ -85,7 +88,7 @@ const data = await ev(`(() => {
     const rs = [...rects].filter((r) => r.width > 0.5 && r.height > 0.5);
     if (!rs.length) return;
     const L = Math.min(...rs.map((r) => r.left)), T = Math.min(...rs.map((r) => r.top)), R = Math.max(...rs.map((r) => r.right)), B = Math.max(...rs.map((r) => r.bottom));
-    const st = textStyle(cs);
+    const st = textStyle(cs, el);
     const lines = new Set(rs.map((r) => Math.round(r.top))).size;
     const ecs = getComputedStyle(el);
     const trunc = ecs.textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1;
@@ -169,7 +172,7 @@ const data = await ev(`(() => {
       const ph = tag === 'select' ? '' : el.placeholder;
       const text = val || ph;
       if (text && el.type !== 'checkbox' && el.type !== 'file' && el.type !== 'hidden') {
-        const st = textStyle(cs); if (!val) st.c = parseColor(getComputedStyle(el, '::placeholder').color) || st.c;
+        const st = textStyle(cs, el); if (!val) st.c = parseColor(getComputedStyle(el, '::placeholder').color) || st.c;
         const left = px(cs.paddingLeft) + px(cs.borderLeftWidth), top = tag === 'textarea' ? px(cs.paddingTop) + px(cs.borderTopWidth) : (r.height - (st.lh || st.fs * 1.3)) / 2;
         nodes.push({ t: 'T', p: myIdx, x: r4(left), y: r4(top), w: r4(r.width - left - px(cs.paddingRight) - (tag === 'select' ? 18 : 0)), h: r4(st.lh || st.fs * 1.3), s: text.replace(/\\s+/g, ' '), st, ml: tag === 'textarea' ? 1 : 0, tr: tag !== 'textarea' ? 1 : 0, cl: 0 });
       }

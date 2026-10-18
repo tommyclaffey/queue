@@ -479,7 +479,8 @@ function videoComposer(c) {
   const capCard = captionCard(multi, drawPreview);
   grid.append(el('div', { class: 'stack' }, dests, capCard, dateTimeCard(multi ? `${tz} · same time everywhere · Queue hands each file over early so it's processed on time.` : `${tz} · Queue hands the video to Instagram ${mins(S.config?.stageWindowMin ?? 120)} early so it's processed on time.`)));
   // right column
-  grid.append(multi ? tailoredPanel(up, on) : qualityPanel(up));
+  const qc = composerQualityCard();
+  grid.append(multi ? (qc ? el('div', { class: 'stack' }, tailoredPanel(up, on), qc) : tailoredPanel(up, on)) : qualityPanel(up));
   c.append(grid);
 }
 const handle0 = () => handle();
@@ -503,6 +504,29 @@ function captionCard(multi, onChange) {
   count();
   const head = el('div', { class: 'row' }, el('h2', { class: 'h3', style: 'flex:1' }, 'Caption'), multi ? el('div', { class: 'seg small-seg' }, ...tabs.map(([k, l]) => el('button', { class: k === key ? 'on' : '', on: { click: () => { C.capTab = k; render(); } } }, l))) : null);
   return el('div', { class: 'card stack', style: 'gap:10px' }, head, cap, counters);
+}
+// Expected quality: the posting account's real measured scores through Queue, next to the Instagram app baseline (Tommy, Oct 17: fill the empty corner with a quality score)
+function composerQualityCard() {
+  const igQ = (S.quality || []).filter((q) => q.platform === 'instagram' && q.route === 'queue').sort((a, b) => a.at.localeCompare(b.at));
+  const brandId = C.brand || (curBrand() && curBrand().id);
+  const b = brands().find((x) => x.id === brandId) || null;
+  const ofBrand = b ? igQ.filter((q) => (S.allPosts || S.posts).find((p) => p.id === q.postId)?.brand === b.id) : [];
+  const list = (ofBrand.length >= 3 ? ofBrand : igQ).slice(-8);
+  if (!list.length) return null;
+  const who = ofBrand.length >= 3 ? `@${b.handle}` : 'your';
+  const app = (S.quality || []).filter((q) => q.route === 'app');
+  const avg = (l) => l.reduce((a, q) => a + q.result.vmaf, 0) / l.length;
+  const a = avg(list), base = app.length ? avg(app) : null;
+  const lo = Math.min(80, ...list.map((q) => q.result.vmaf), ...(base != null ? [base] : [])) - 2;
+  const y = (v) => `${Math.max(6, ((v - lo) / (100 - lo)) * 100)}%`;
+  const bars = el('div', { class: 'qbars qbars-sm' }, ...list.map((q, i) => el('button', { class: 'qbar' + (i === list.length - 1 ? ' last' : ''), style: `height:${y(q.result.vmaf)}`, title: `VMAF ${q.result.vmaf}`, 'aria-label': `VMAF ${q.result.vmaf}`, on: { click: () => (location.hash = `#/quality/${q.id}`) } }, el('span', {}, String(Math.round(q.result.vmaf))))));
+  if (base != null) bars.append(el('div', { class: 'qbase', style: `bottom:${y(base)}` }));
+  return el('div', { class: 'card stack', style: 'gap:10px' },
+    el('div', { class: 'row' }, el('h2', { class: 'h3', style: 'flex:1' }, 'Expected quality'), el('a', { class: 'link small', href: '#/quality' }, 'Quality Lab →')),
+    el('div', { class: 'row', style: 'align-items:baseline;gap:6px' }, el('span', { class: 'qbig' }, a.toFixed(1)), el('span', { class: 'small muted' }, 'VMAF / 100'), base != null ? el('span', { class: 'small', style: 'margin-left:auto;color:var(--success);font-weight:500' }, `+${(a - base).toFixed(1)} vs app`) : null),
+    el('div', { class: 'small muted', style: 'margin-top:-4px' }, `Average of ${who === 'your' ? 'your' : who + "'s"} last ${list.length} posts`),
+    bars,
+    base != null ? el('div', { class: 'small muted' }, el('span', { class: 'qkey' }), `Instagram app upload ${base.toFixed(1)}`) : null);
 }
 function tailoredPanel(up, on) {
   const v = up.info.video || {}; const hdr = ['arib-std-b67', 'smpte2084'].includes(v.colorTransfer);

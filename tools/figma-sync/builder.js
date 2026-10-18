@@ -53,7 +53,10 @@ const strokes = (n, bw, bc) => {
   else { n.strokeTopWeight = bw[0]; n.strokeRightWeight = bw[1]; n.strokeBottomWeight = bw[2]; n.strokeLeftWeight = bw[3]; }
 };
 const fonts = {};
+// Oct 17: SF Pro and Inter name their weights differently from Geist
+const SFW = { SemiBold: 'Semibold', ExtraBold: 'Heavy', ExtraLight: 'Ultralight' }, INW = { SemiBold: 'Semi Bold', ExtraBold: 'Extra Bold', ExtraLight: 'Extra Light' };
 const font = async (ff, fw, it) => {
+  if (ff === 'SF Pro') fw = SFW[fw] || fw; else if (ff === 'Inter') fw = INW[fw] || fw;
   let style = fw + (it ? ' Italic' : '');
   const k = ff + '|' + style;
   if (!(k in fonts)) { try { await figma.loadFontAsync({ family: ff, style }); fonts[k] = { family: ff, style }; } catch (e) { const f = { family: ff, style: fw }; try { await figma.loadFontAsync(f); fonts[k] = f; } catch (e2) { await figma.loadFontAsync({ family: 'Geist', style: 'Regular' }); fonts[k] = { family: 'Geist', style: 'Regular' }; } } }
