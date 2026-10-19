@@ -241,11 +241,11 @@ export class InstagramClient {
     return { token: json.access_token, expiresInSec: json.expires_in };
   }
 
-  // Meta caps API-published posts per rolling 24h. Docs say 100 in one place, 50 in another —
-  // so we trust the live number Meta returns (config.quota_total).
+  // Meta caps API-published posts per rolling 24h: 100 in the docs (checked Oct 18, 2026).
+  // We still trust the live number Meta returns (config.quota_total).
   async quota() {
-    if (this.dryRun) return { used: 0, total: 50 };
+    if (this.dryRun) return { used: 0, total: 100 };
     const { data } = await this.#call(`${this.graph}/${this.userId}/content_publishing_limit?fields=quota_usage,config`);
-    return { used: data?.[0]?.quota_usage ?? 0, total: data?.[0]?.config?.quota_total ?? 50 };
+    return { used: data?.[0]?.quota_usage ?? 0, total: data?.[0]?.config?.quota_total ?? 100 };
   }
 }

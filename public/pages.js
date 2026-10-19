@@ -334,7 +334,7 @@ VIEWS.setup = async (c) => {
   const demo = isDemo();
   const rows = [
     [connected ? 'ok' : 'no', connected ? `Connected as @${st.account}` : 'Not connected yet', connected ? `${demo ? S.extras.account.kind : 'Professional'} account · Instagram Login` : 'Queue is in dry run until a login key is in .env', connected ? null : btn('How to connect', 'secondary small', () => connectHelp('instagram'))],
-    [connected ? 'ok' : 'off', connected ? 'Publishing allowed' : 'Publishing', connected ? (demo ? '3 of 50 posts used in the last 24h' : 'Instagram allows up to 50 posts a day') : 'Checked once you connect'],
+    [connected ? 'ok' : 'off', connected ? 'Publishing allowed' : 'Publishing', connected ? (demo ? '3 of 100 API-published posts used in the last 24h' : 'Instagram allows 100 API-published posts a day') : 'Checked once you connect'],
     [st.ffmpeg ? 'ok' : 'no', st.ffmpeg ? 'Video tools ready' : 'Video tools missing', st.ffmpeg ? 'Quality checker + Apple HDR converter found' : 'Run: brew install ffmpeg'],
     [st.cloudflared || st.uploadMode !== 'url' ? 'ok' : 'no', st.uploadMode === 'url' ? 'Temporary file link works' : 'Direct upload', st.uploadMode === 'url' ? (st.cloudflared ? 'Opens for each upload and closes right after' : 'Run: brew install cloudflared') : 'Files go straight to Meta'],
     [cfg.notify ? 'ok' : 'warn', cfg.notify ? 'Notifications are on' : 'Notifications are off', cfg.notify ? 'Posted, failed and missed alerts on this Mac' : 'Turn them on in Settings → Notifications', cfg.notify ? null : btn('Turn on', 'secondary small', async () => { S.config = await api('/api/config', json('PATCH', { notify: true })); render(); })],

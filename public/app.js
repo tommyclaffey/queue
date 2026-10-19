@@ -57,12 +57,12 @@ const svgLogo = (name) => (!LOGO_FILES.has(name) ? '' : HAS_DARK.has(name)
 
 // What each platform's API allows (from the Sept 2026 capability research).
 const PLATFORMS = [
-  { id: 'instagram', name: 'Instagram', live: true, formats: ['Reel', 'Photo', 'Carousel 10', 'Story'], delivery: 'Queue posts at the time', note: 'Video capped at 1080 wide · 100 posts a day' },
-  { id: 'youtube', name: 'YouTube', formats: ['Video', 'Short (≤ 3 min)'], delivery: 'YouTube schedules it', native: true, note: 'The only platform that keeps 4K & HDR' },
+  { id: 'instagram', name: 'Instagram', live: true, formats: ['Reel', 'Photo', 'Carousel 10', 'Story'], delivery: 'Queue posts at the time', note: '100 API-published posts a day' },
+  { id: 'youtube', name: 'YouTube', formats: ['Video', 'Short (≤ 3 min)'], delivery: 'YouTube schedules it', native: true },
   { id: 'facebook', name: 'Facebook', formats: ['Reel 3–90s', 'Video', 'Photo', 'Multi-photo', 'Story', 'Text'], delivery: 'Facebook schedules it', native: true, note: 'Needs a Facebook Page' },
   { id: 'tiktok', name: 'TikTok', formats: ['Video', 'Photo carousel 35'], delivery: 'Goes to your TikTok drafts', drafts: true, note: 'Direct posting needs TikTok approval' },
   { id: 'linkedin', name: 'LinkedIn', formats: ['Video', 'Photo', 'Multi-image 20', 'PDF carousel', 'Text'], delivery: 'Queue posts at the time', note: 'Company Pages need LinkedIn approval' },
-  { id: 'threads', name: 'Threads', formats: ['Video', 'Photo', 'Carousel 20', 'Text'], delivery: 'Queue posts at the time', note: 'Uses your Instagram connection' },
+  { id: 'threads', name: 'Threads', formats: ['Video', 'Photo', 'Carousel 20', 'Text'], delivery: 'Queue posts at the time' },
   { id: 'pinterest', name: 'Pinterest', formats: ['Pin', 'Video pin', 'Carousel 5'], delivery: 'Queue posts at the time', note: 'Pins private until Pinterest approves' },
   { id: 'bluesky', name: 'Bluesky', formats: ['Video', 'Photo', 'Text'], delivery: 'Queue posts at the time', note: 'Open API — no approval needed' },
   { id: 'x', name: 'X', formats: ['Video', 'Photo 4', 'Text'], delivery: 'Queue posts at the time', note: '$0.015 a post · video capped at 1280 px' },
@@ -915,7 +915,7 @@ VIEWS.accounts = (c) => {
       el('div', { class: 'chips' }, ...p.formats.map((f) => el('span', { class: 'chip' }, f))),
       el('div', { class: 'platform-foot' },
         el('div', { class: 'small', style: `color:var(--${p.native ? 'success' : p.drafts ? 'warning' : 'text-secondary'})` }, '● ' + p.delivery),
-        el('div', { class: 'small faint' }, p.note),
+        p.note ? el('div', { class: 'small faint' }, p.note) : null,
         el('div', { style: 'margin-top:6px' }, action))));
   }
   c.append(el('div', { class: 'row small muted', style: 'gap:18px;margin-bottom:14px' }, el('span', { style: 'color:var(--success)' }, '● Platform schedules it natively'), '● Queue posts it at the time', el('span', { style: 'color:var(--warning)' }, '● Goes to your drafts')), grid);
@@ -1084,7 +1084,7 @@ function qualityPanel(up) {
   const hdr = ['arib-std-b67', 'smpte2084'].includes(v.colorTransfer);
   const mbps = v.bitrate ? v.bitrate / 1e6 : null;
   const rows = [
-    ['Resolution', `${v.width}×${v.height}`, Math.min(v.width, v.height) <= 1080, '≤ 1080 wide'],
+    ['Resolution', `${v.width}×${v.height}`, v.width <= 1920, '≤ 1920 wide'],
     ['Colour', hdr ? 'HDR' : (v.pixFmt || '').includes('10') ? '10-bit' : 'SDR 8-bit', !hdr && !(v.pixFmt || '').includes('10'), 'SDR 8-bit'],
     ['Bitrate', mbps ? `${mbps.toFixed(1)} Mbps` : '—', !mbps || mbps <= 25, '≤ 25 Mbps'],
     ['File size', fmtBytes(info.bytes), info.bytes <= 300 * 1048576, '≤ 300 MB'],
