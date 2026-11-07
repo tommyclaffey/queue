@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Queue — schedule Instagram Reels without wrecking video quality.
-import { existsSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -261,14 +261,23 @@ try {
         notify: () => {}, log: () => {},
       });
       if (pub) {
-        setInterval(async () => {
-          try {
-            rmSync(join(data, 'settings.json'), { force: true }); // visitors' Settings changes
-            await buildDemo(ROOT, { log: () => {} }); // re-seeds posts, team activity and dates
-            Object.assign(demoCfg, JSON.parse(readFileSync(join(data, 'demo.json'), 'utf8')));
-            console.log(`  ↻ demo reset ${new Date().toISOString()}`);
-          } catch (err) { console.error('  demo reset failed:', err.message); }
-        }, resetHours * 3600e3).unref();
+        // The sample data as built. A rebuild re-scores the videos and takes minutes, so a visitor's refresh just puts this copy back.
+        const SEED = ['queue.json', 'demo.json', 'quality.json', 'benchmarks.json'];
+        let seed = SEED.map((f) => [f, readFileSync(join(data, f))]);
+        demoCfg.restart = async () => {
+          rmSync(join(data, 'settings.json'), { force: true }); // visitors' Settings changes
+          for (const [f, bytes] of seed) writeFileSync(join(data, f), bytes);
+          Object.assign(demoCfg, JSON.parse(readFileSync(join(data, 'demo.json'), 'utf8')));
+          console.log(`  ↻ demo put back ${new Date().toISOString()}`);
+        };
+        const rebuild = async () => {
+          rmSync(join(data, 'settings.json'), { force: true }); // visitors' Settings changes
+          await buildDemo(ROOT, { log: () => {} }); // re-seeds posts, team activity and dates
+          Object.assign(demoCfg, JSON.parse(readFileSync(join(data, 'demo.json'), 'utf8')));
+          seed = SEED.map((f) => [f, readFileSync(join(data, f))]);
+          console.log(`  ↻ demo reset ${new Date().toISOString()}`);
+        };
+        setInterval(() => rebuild().catch((err) => console.error('  demo reset failed:', err.message)), resetHours * 3600e3).unref();
       }
       app.server.on('error', (err) => {
         console.error(err.code === 'EADDRINUSE' ? `\n❌ Port ${port} is already in use. The demo may already be running: http://localhost:${port}\n` : `\n❌ ${err.message}\n`);

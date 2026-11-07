@@ -221,6 +221,7 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
   // The public demo (its own link on Railway): anyone may look around. Nothing posts anyway, but
   // anything that costs real CPU or disk (uploads, re-encodes, quality measuring) is switched off.
   const publicDemo = !!demo?.public;
+  let demoDirty = false, demoRestartAt = 0; // for the refresh restart: nothing to put back unless a visitor changed something
   const DEMO_FULL = 140; // posts — the demo resets itself every few hours
   // The demo studio's account a new post is for (falls back to the first one).
   const demoBrand = (b) => (demo?.brands?.length ? (demo.brands.some((x) => x.id === b) ? b : demo.brands[0].id) : null);
@@ -258,6 +259,13 @@ export function startServer({ root, queue, ig, files = null, tokens = null, port
     if (req.method !== 'GET' && (req.headers['x-queue'] !== '1' || !(hosted || publicDemo ? sameOrigin(req) : allowedOrigin(req.headers.origin)))) {
       return send(res, 403, { error: 'Forbidden' });
     }
+    // Nov 7, Tommy: "have all my demo restart after a refresh." A refresh on the public demo puts the sample data back, if anyone changed it.
+    if (publicDemo && req.method === 'POST' && req.url.split('?')[0] === '/api/demo/restart') {
+      const restarted = demoDirty && Date.now() - demoRestartAt > 5_000 && demo.restart ? (await demo.restart().then(() => true, () => false)) : false;
+      if (restarted) { demoDirty = false; demoRestartAt = Date.now(); }
+      return send(res, 200, { restarted });
+    }
+    if (publicDemo && req.method !== 'GET') demoDirty = true;
     const me = userOf(req);
     if (hosted && req.method === 'GET' && url.pathname === '/api/auth/state') {
       const providers = Object.fromEntries(Object.keys(PROVIDERS).map((p) => [p, { on: oauth.configured(p), redirectUri: publicOrigin ? oauth.redirectUri(p) : null }]));

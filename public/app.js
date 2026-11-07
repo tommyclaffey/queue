@@ -364,7 +364,7 @@ function renderChrome() {
   if (me) $('#me').replaceChildren(avatarEl(me, 'av-md'), el('div', { class: 'who' }, el('b', {}, me.name), el('div', { class: 'small muted' }, me.role)), el('a', { class: 'ico faint', href: '#/settings', title: 'Settings', 'aria-label': 'Settings', html: svgIcon('settings') }));
   const note = $('#demoNote');
   note?.classList.toggle('hidden', !S.extras?.public);
-  if (S.extras?.public) note.replaceChildren(el('b', {}, 'Live demo'), el('div', {}, `Click anything: nothing posts anywhere. It resets every ${S.extras.resetHours || 3} hours.`), el('button', { type: 'button', class: 'link small note-link', on: { click: startTour } }, 'Take the tour'));
+  if (S.extras?.public) note.replaceChildren(el('b', {}, 'Live demo'), el('div', {}, 'Click anything: nothing posts anywhere. Refresh to start over.'), el('button', { type: 'button', class: 'link small note-link', on: { click: startTour } }, 'Take the tour'));
   const used = S.storage?.totalBytes || 0;
   $('#heartbeat').replaceChildren(
     el('div', { class: 'row' }, el('span', { class: 'dot ok', style: 'width:8px;height:8px' }), 'Scheduler running'),
@@ -1218,6 +1218,7 @@ document.addEventListener('drop', () => { dragging = false; });
 // ---------------------------------------------------------------- phone screen + welcome card
 // Queue is a desktop app (the phone layout comes later). On a phone it shows what Queue is, three
 // screenshots, and a way to send the link to a computer, instead of a squeezed sidebar.
+const WELCOME_KEY = 'queue-welcome-v1'; // lost in the Oct 11 phone commit, so the card had stopped opening on its own
 function showWelcome() {
   try { localStorage.setItem(WELCOME_KEY, '1'); } catch {}
   const firstPost = () => [...(S.allPosts || S.posts)].filter(upcoming).sort((a, b) => a.publishAt.localeCompare(b.publishAt))[0];
@@ -1243,6 +1244,23 @@ function showWelcome() {
 
 (async function boot() {
   try { await load(); } catch (e) { toast(e.message, true); }
+  // Nov 7, Tommy: "have all my demo restart after a refresh." A refresh in the demo starts over: the sample data, the account picker,
+  // the first screen and the welcome card. Your theme stays.
+  const refreshed = performance.getEntriesByType?.('navigation')[0]?.type === 'reload';
+  if (refreshed && isDemo()) {
+    try {
+      localStorage.removeItem(WELCOME_KEY); localStorage.removeItem('queue-brand');
+      localStorage.removeItem('queue-preview-ui'); localStorage.removeItem('queue-preview-safe');
+    } catch {}
+    brandSel = 'all'; previewUI = true; previewSafe = false;
+    location.replace('#/dashboard');
+    if (S.extras?.public) {
+      try {
+        const r = await api('/api/demo/restart', { method: 'POST' });
+        if (r?.restarted) await load();
+      } catch {}
+    }
+  }
   if (!location.hash) location.hash = '#/dashboard'; else render();
   let seen = true; try { seen = !!localStorage.getItem(WELCOME_KEY); } catch {}
   if (isDemo() && !seen) setTimeout(showWelcome, 400);
