@@ -1246,7 +1246,8 @@ function showWelcome() {
   try { await load(); } catch (e) { toast(e.message, true); }
   // Nov 7, Tommy: "have all my demo restart after a refresh." A refresh in the demo starts over: the sample data, the account picker,
   // the first screen and the welcome card. Your theme stays.
-  const refreshed = performance.getEntriesByType?.('navigation')[0]?.type === 'reload';
+  // Inside another page's frame (the portfolio's viewer) a refresh of that page reports "navigate", so every load there counts.
+  const refreshed = performance.getEntriesByType?.('navigation')[0]?.type === 'reload' || window.self !== window.top;
   if (refreshed && isDemo()) {
     try {
       localStorage.removeItem(WELCOME_KEY); localStorage.removeItem('queue-brand');
